@@ -1,0 +1,47 @@
+name: Windows launcher checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - run.bat
+      - bootstrap.py
+      - requirements.txt
+      - app/main.py
+      - tools/gui_startup_smoke.py
+      - .github/workflows/launcher.yml
+jobs:
+  launcher:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      ANIME_DRAWER_NO_PAUSE: '1'
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: First launch installs dependencies
+        run: call run.bat --install-only
+      - name: Repair a partially installed environment
+        run: |
+          .venv-win\Scripts\python.exe -m pip uninstall -y mss
+          if errorlevel 1 exit /b 1
+          call run.bat --install-only
+          if errorlevel 1 exit /b 1
+          .venv-win\Scripts\python.exe -c "import importlib.metadata as m; assert m.version('mss') == '10.0.0'"
+      - name: Repeated healthy launch
+        run: call run.bat --install-only
+      - name: Application errors retain their exit status and log
+        run: |
+          call run.bat --invalid-launcher-smoke-option
+          if not "%errorlevel%"=="1" exit /b 1
+          findstr /c:"unrecognized arguments" logs\startup.log >nul
+          if errorlevel 1 exit /b 1
+      - name: Desktop UI startup and Win32 hotkey initialization
+        run: .venv-win\Scripts\python.exe tools\gui_startup_smoke.py
