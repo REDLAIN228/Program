@@ -1,0 +1,235 @@
+"""Win32 backend. No process memory access, injection, drivers or protection bypass."""
+from __future__ import annotations
+
+import ctypes
+from ctypes import wintypes
+import os
+from pathlib import PureWindowsPath
+import threading
+import time
+
+from app.automation import SafetyError, WindowState
+from app.models import Rect
+
+
+def _require_windows():
+    if os.name != "nt":
+        raise OSError("Управление внешними окнами доступно только на Windows")
+
+
+# Explicit Windows field widths let packet layout be tested on non-Windows hosts too.
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_int32), ("dy", ctypes.c_int32), ("mouseData", ctypes.c_uint32),
+                ("dwFlags", ctypes.c_uint32), ("time", ctypes.c_uint32), ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", ctypes.c_uint16), ("wScan", ctypes.c_uint16), ("dwFlags", ctypes.c_uint32),
+                ("time", ctypes.c_uint32), ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [("uMsg", ctypes.c_uint32), ("wParamL", ctypes.c_uint16), ("wParamH", ctypes.c_uint16)]
+
+
+class INPUTUNION(ctypes.Union):
+    _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT), ("hi", HARDWAREINPUT)]
+
+
+class INPUT(ctypes.Structure):
+    _anonymous_ = ("data",)
+    _fields_ = [("type", ctypes.c_uint32), ("data", INPUTUNION)]
+
+
+def normalize_absolute(x: int, y: int, desktop: Rect) -> tuple[int, int]:
+    if not desktop.contains(x, y) or desktop.width < 2 or desktop.height < 2:
+        raise SafetyError("Точка за границей виртуального рабочего стола")
+    return (round((x-desktop.x)*65535/(desktop.width-1)),
+            round((y-desktop.y)*65535/(desktop.height-1)))
+
+
+if os.name == "nt":
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetAncestor.restype = wintypes.HWND
+    user32.WindowFromPoint.argtypes = [wintypes.POINT]
+    user32.WindowFromPoint.restype = wintypes.HWND
+    user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
+    user32.IsWindow.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD,
+                                                  wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    user32.GetDpiForWindow.argtypes = [wintypes.HWND]
+    user32.GetDpiForWindow.restype = wintypes.UINT
+
+    user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+    user32.SendInput.restype = wintypes.UINT
+
+
+def enable_dpi_awareness() -> None:
+    if os.name == "nt":
+        user32.SetProcessDpiAwarenessContext.argtypes = [wintypes.HANDLE]
+        user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))  # PER_MONITOR_AWARE_V2
+
+
+def window_state(hwnd: int) -> WindowState:
+    _require_windows()
+    if not user32.IsWindow(hwnd) or user32.IsIconic(hwnd):
+        raise SafetyError("Целевое окно закрыто или свёрнуто")
+    rect = wintypes.RECT()
+    origin = wintypes.POINT(0, 0)
+    if not user32.GetClientRect(hwnd, ctypes.byref(rect)) or not user32.ClientToScreen(hwnd, ctypes.byref(origin)):
+        raise SafetyError("Не удалось получить координаты окна")
+    title, cls = ctypes.create_unicode_buffer(512), ctypes.create_unicode_buffer(256)
+    user32.GetWindowTextW(hwnd, title, len(title))
+    user32.GetClassNameW(hwnd, cls, len(cls))
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    handle = kernel32.OpenProcess(0x1000, False, pid.value)  # Query limited information only.
+    name = ctypes.create_unicode_buffer(32768)
+    length = wintypes.DWORD(len(name))
+    try:
+        if not handle or not kernel32.QueryFullProcessImageNameW(handle, 0, name, ctypes.byref(length)):
+            raise SafetyError("Не удалось проверить имя процесса целевого окна")
+        process = PureWindowsPath(name.value).name
+    finally:
+        if handle:
+            kernel32.CloseHandle(handle)
+    return WindowState(hwnd, title.value, cls.value, process,
+                       Rect(origin.x, origin.y, rect.right, rect.bottom), user32.GetDpiForWindow(hwnd))
+
+
+def list_windows() -> list[WindowState]:
+    _require_windows()
+    result = []
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    @callback_type
+    def callback(hwnd, _):
+        if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
+            try:
+                state = window_state(hwnd)
+                if state.title and state.client.width >= 200 and state.client.height >= 150:
+                    result.append(state)
+            except SafetyError:
+                pass
+        return True
+
+    user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+    if not user32.EnumWindows(callback, 0):
+        raise OSError("EnumWindows failed")
+    return sorted(result, key=lambda s: ("roblox" not in s.process.lower(), s.title))
+
+
+def focus_window(hwnd: int) -> None:
+    _require_windows()
+    user32.ShowWindow(hwnd, 9)
+    if not user32.SetForegroundWindow(hwnd):
+        raise SafetyError("Windows не разрешила активировать окно. Выберите его вручную и повторите.")
+
+
+def capture_client(state: WindowState):
+    import mss
+    from PIL import Image
+    with mss.mss() as capture:
+        shot = capture.grab({"left": state.client.x, "top": state.client.y,
+                             "width": state.client.width, "height": state.client.height})
+        return Image.frombytes("RGB", shot.size, shot.rgb)
+
+
+class Win32Backend:
+    def __init__(self, hwnd: int):
+        _require_windows()
+        self.hwnd = hwnd
+        self._lock = threading.Lock()
+
+    def snapshot(self):
+        return window_state(self.hwnd)
+
+    def is_foreground(self):
+        return user32.GetForegroundWindow() == self.hwnd
+
+    def point_belongs_to_target(self, x, y):
+        hwnd = user32.WindowFromPoint(wintypes.POINT(x, y))
+        return user32.GetAncestor(hwnd, 2) == self.hwnd  # GA_ROOT
+
+    def _send(self, flags: int, x: int = 0, y: int = 0):
+        event = INPUT(type=0, mi=MOUSEINPUT(x, y, 0, flags, 0, 0))
+        with self._lock:
+            if user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(INPUT)) != 1:
+                raise SafetyError("Windows отклонила SendInput (например, разные уровни прав). "
+                                  "Запустите окна с одинаковыми правами; обход защиты не поддерживается.")
+
+    def move(self, x, y):
+        sx, sy = user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)
+        sw, sh = user32.GetSystemMetrics(78), user32.GetSystemMetrics(79)
+        ax, ay = normalize_absolute(x, y, Rect(sx, sy, sw, sh))
+        self._send(0x8000 | 0x4000 | 0x0001, ax, ay)
+
+    def down(self):
+        self._send(0x0002)
+
+    def up(self):
+        self._send(0x0004)
+
+    def sample(self, x, y):
+        import mss
+        with mss.mss() as capture:
+            shot = capture.grab({"left": x, "top": y, "width": 1, "height": 1})
+            return tuple(shot.rgb[:3])
+
+
+class GlobalHotkeys:
+    """F8 pause/resume, F9 emergency stop. Registration must succeed before RUN."""
+
+    def __init__(self, pause, stop):
+        self.pause, self.stop = pause, stop
+        self.closed = threading.Event()
+        self.ready = threading.Event()
+        self.error = None
+        self.thread = None
+
+    def start(self):
+        _require_windows()
+        self.thread = threading.Thread(target=self._loop, daemon=True, name="hotkeys")
+        self.thread.start()
+        if not self.ready.wait(3):
+            raise SafetyError("Не удалось запустить глобальные горячие клавиши")
+        if self.error:
+            raise SafetyError(self.error)
+
+    def _loop(self):
+        registered = []
+        try:
+            for ident, vk in [(1, 0x77), (2, 0x78)]:
+                if not user32.RegisterHotKey(None, ident, 0x4000, vk):
+                    self.error = "F8/F9 заняты другой программой. Освободите клавиши и перезапустите приложение."
+                    return
+                registered.append(ident)
+            self.ready.set()
+            msg = wintypes.MSG()
+            while not self.closed.wait(.01):
+                while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+                    if msg.message == 0x0312:
+                        (self.pause if msg.wParam == 1 else self.stop)()
+        finally:
+            self.ready.set()
+            for ident in registered:
+                user32.UnregisterHotKey(None, ident)
+
+    def close(self):
+        self.closed.set()
+        if self.thread:
+            self.thread.join(timeout=2)
