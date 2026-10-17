@@ -7,6 +7,7 @@ on:
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,7 +19,14 @@ jobs:
       - name: Headless tests (does not validate native Win32 input)
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+          PYTHONUTF8: '1'
+        run: |
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          python -m pytest -q --junitxml=artifacts/pytest-results.xml > artifacts/pytest-output.txt 2>&1
+          $testExit = $LASTEXITCODE
+          Get-Content artifacts/pytest-output.txt
+          python tools/ci_summary.py artifacts/pytest-output.txt "$env:GITHUB_STEP_SUMMARY"
+          exit $testExit
       - name: Build Windows desktop executable
         run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name AnimeDrawer --icon assets/anime-drawer.ico --collect-all mss --collect-all keyring --hidden-import keyring.backends.Windows main.py
       - uses: actions/upload-artifact@v4
