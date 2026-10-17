@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+import hashlib
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -52,6 +54,20 @@ def python_path(environment):
     return environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
 
 
+def environment_path(root, platform=None, local_appdata=None):
+    platform = sys.platform if platform is None else platform
+    if platform != "win32":
+        return root / ".venv-win"
+    local_appdata = os.environ.get("LOCALAPPDATA") if local_appdata is None else local_appdata
+    if not local_appdata:
+        raise RuntimeError("Windows не предоставила LOCALAPPDATA для установки библиотек.")
+    # GitHub ZIP folders contain a 40-character SHA and may be nested twice.
+    # Qt ships long QML filenames; keep dependencies outside that project path.
+    digest = hashlib.sha256((root / "requirements.txt").read_bytes()).hexdigest()[:10]
+    version = f"py{sys.version_info.major}{sys.version_info.minor}"
+    return Path(local_appdata) / "AD" / "envs" / f"{version}-{digest}"
+
+
 def dependency_probe(root):
     requirements = []
     for line in (root / "requirements.txt").read_text("utf-8").splitlines():
@@ -78,8 +94,9 @@ def dependency_probe(root):
             "print('Runtime dependencies: OK')\n")
 
 
-def prepare_environment(root, log, run=run_logged):
-    environment = root / ".venv-win"
+def prepare_environment(root, log, run=run_logged, environment=None):
+    environment = environment if environment is not None else environment_path(root)
+    log.write(f"Окружение Python: {environment}")
     interpreter = python_path(environment)
     if not interpreter.is_file():
         log.write("Создаю окружение Python…")
@@ -90,8 +107,8 @@ def prepare_environment(root, log, run=run_logged):
     check = ("import sys,struct; "
              "sys.exit(0 if (3,11)<=sys.version_info[:2]<(3,14) and struct.calcsize('P')==8 else 1)")
     if run([str(interpreter), "-c", check], root, log):
-        raise RuntimeError("Окружение .venv-win использует неподходящий Python. "
-                           "Переименуйте папку .venv-win и запустите run.bat снова.")
+        raise RuntimeError(f"Окружение использует неподходящий Python: {environment}. "
+                           "Переименуйте указанную папку и запустите run.bat снова.")
     probe = [str(interpreter), "-X", "utf8", "-c", dependency_probe(root)]
     if run(probe, root, log) == 0:
         return interpreter
@@ -102,7 +119,7 @@ def prepare_environment(root, log, run=run_logged):
     install = [str(interpreter), "-m", "pip", "install", "--disable-pip-version-check",
                "-r", str(root / "requirements.txt")]
     if run(install, root, log):
-        raise RuntimeError("Установка библиотек не завершилась. Проверьте интернет и ошибку выше. "
+        raise RuntimeError("Установка библиотек не завершилась. Точная причина указана выше в журнале. "
                            "Следующий запуск снова попробует установить зависимости.")
     if run(probe, root, log):
         raise RuntimeError("Библиотеки установлены, но не загружаются. "
@@ -115,6 +132,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="ANIME DRAWER startup and dependency repair")
     parser.add_argument("--check-python", action="store_true")
     parser.add_argument("--install-only", action="store_true")
+    parser.add_argument("--build", action="store_true")
     args, app_args = parser.parse_known_args(argv)
     if args.check_python:
         return 0 if compatible_python() else 1
@@ -131,6 +149,10 @@ def main(argv=None):
         if not (root / "main.py").is_file() or not (root / "app").is_dir():
             raise RuntimeError("Распакуйте архив целиком: рядом нужны main.py, requirements.txt и app.")
         interpreter = prepare_environment(root, log)
+        (log.path.parent / "python-path.txt").write_text(str(interpreter), encoding="utf-8")
+        if args.build:
+            from tools.windows_build import build_application
+            return build_application(root, interpreter, log, run_logged)
         if args.install_only:
             log.write("Окружение готово. Для запуска откройте run.bat.")
             return 0

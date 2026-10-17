@@ -1,6 +1,8 @@
 r"""Run on an interactive Windows desktop. Draws ONLY on our local test window.
 
-Usage: .venv-win\Scripts\python.exe tools\native_smoke.py
+After run.bat succeeds, use PowerShell in the project folder:
+    $python = (Get-Content -Raw -Encoding UTF8 .\logs\python-path.txt).Trim()
+    & $python tools\native_smoke.py
 Produces artifacts/native-smoke.json and actual screenshots. F9 always aborts.
 This is a real SendInput acceptance check, not part of the headless test suite.
 """

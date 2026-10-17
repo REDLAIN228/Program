@@ -2,7 +2,8 @@ import sys
 
 import pytest
 
-from bootstrap import StartupLog, compatible_python, prepare_environment, python_path, run_logged
+from bootstrap import (StartupLog, compatible_python, environment_path, prepare_environment,
+                       python_path, run_logged)
 
 
 def test_supported_python_versions_and_architecture():
@@ -41,10 +42,28 @@ def test_partial_install_is_retried_on_the_next_launch(tmp_path):
             repaired = True
         return 0
     with pytest.raises(RuntimeError, match="Установка"):
-        prepare_environment(tmp_path, log, fake_run)
+        prepare_environment(tmp_path, log, fake_run, environment=interpreter.parent.parent)
     assert interpreter.is_file()
-    assert prepare_environment(tmp_path, log, fake_run) == interpreter
+    assert prepare_environment(tmp_path, log, fake_run, environment=interpreter.parent.parent) == interpreter
     assert len(installs) == 2
-    assert prepare_environment(tmp_path, log, fake_run) == interpreter
+    assert prepare_environment(tmp_path, log, fake_run, environment=interpreter.parent.parent) == interpreter
     assert len(installs) == 2
     log.close()
+
+
+def test_windows_environment_is_independent_of_long_archive_folder(tmp_path):
+    # Same double SHA directory pattern as the user's failing installation.
+    directory = "Program-" + "0c7ace8ad134b74d7a89ada162fd627da5c25b3d"
+    project = tmp_path / directory / directory
+    project.mkdir(parents=True)
+    (project / "requirements.txt").write_text("PySide6==6.8.3\n")
+    cache = tmp_path / "local"
+    environment = environment_path(project, platform="win32", local_appdata=cache)
+    assert environment.is_relative_to(cache)
+    assert not environment.is_relative_to(project)
+    other = tmp_path / "another-project"
+    other.mkdir()
+    (other / "requirements.txt").write_bytes((project / "requirements.txt").read_bytes())
+    assert environment_path(other, platform="win32", local_appdata=cache) == environment
+    (other / "requirements.txt").write_text("PySide6==6.8.4\n")
+    assert environment_path(other, platform="win32", local_appdata=cache) != environment

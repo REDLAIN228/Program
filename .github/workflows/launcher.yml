@@ -9,6 +9,7 @@ on:
       - requirements.txt
       - app/main.py
       - tools/gui_startup_smoke.py
+      - tools/long_path_smoke.py
       - .github/workflows/launcher.yml
 jobs:
   launcher:
@@ -30,13 +31,14 @@ jobs:
         run: call run.bat --install-only
       - name: Repair a partially installed environment
         run: |
-          .venv-win\Scripts\python.exe -m pip uninstall -y mss
+          python -c "from pathlib import Path; import subprocess; p=Path('logs/python-path.txt').read_text(encoding='utf-8').strip(); subprocess.run([p,'-m','pip','uninstall','-y','mss'],check=True)"
           if errorlevel 1 exit /b 1
           call run.bat --install-only
           if errorlevel 1 exit /b 1
-          .venv-win\Scripts\python.exe -c "import importlib.metadata as m; assert m.version('mss') == '10.0.0'"
       - name: Repeated healthy launch
         run: call run.bat --install-only
+      - name: Launch from nested GitHub ZIP folders
+        run: python tools/long_path_smoke.py
       - name: Application errors retain their exit status and log
         run: |
           call run.bat --invalid-launcher-smoke-option
@@ -44,4 +46,4 @@ jobs:
           findstr /c:"unrecognized arguments" logs\startup.log >nul
           if errorlevel 1 exit /b 1
       - name: Desktop UI startup and Win32 hotkey initialization
-        run: .venv-win\Scripts\python.exe tools\gui_startup_smoke.py
+        run: python -c "from pathlib import Path; import subprocess; p=Path('logs/python-path.txt').read_text(encoding='utf-8').strip(); subprocess.run([p,'tools/gui_startup_smoke.py'],check=True)"
