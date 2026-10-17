@@ -10,6 +10,14 @@ from app.planner import PlanOptions, build_plan
 from app.ui.calibration import CalibrationDialog
 
 
+@pytest.fixture(autouse=True)
+def synchronous_target_delays(monkeypatch):
+    # This target delivers input immediately; preserve STOP/pause checks without
+    # pretending to validate Windows frame timing in the simulated backend.
+    wait = DrawingExecutor._wait
+    monkeypatch.setattr(DrawingExecutor, "_wait", lambda self, seconds: wait(self, 0))
+
+
 def game_state():
     return WindowState(123, "Roblox", "Game", "RobloxPlayerBeta.exe", Rect(-1400, 20, 1366, 768), 120)
 
@@ -28,7 +36,7 @@ def test_game_profile_roundtrip_resolution_and_unverified_status():
     profile = screenshot_profile(game_state())
     assert not profile.verified
     assert Calibration.from_dict(profile.to_dict()).to_dict() == profile.to_dict()
-    assert selection_clicks(profile) == (5, 2)
+    assert selection_clicks(profile) == (5, 12)
     assert profile.brush_slider.minimum == 1 and profile.brush_slider.maximum == 256
     assert profile.size_tab is None
     with pytest.raises(ValueError, match="1366"):
@@ -48,6 +56,9 @@ class TabbedBackend:
         self.pressed = False
         self.clicks = []
         self.drawing = []
+        self.width = 128
+
+    def read_brush_size(self, region): return self.width
 
     def snapshot(self): return game_state()
     def is_foreground(self): return True
@@ -68,6 +79,10 @@ class TabbedBackend:
             self.drawing.append((self.rgb, self.width))
         elif point == p.color_tab:
             self.tab = "color"
+        elif point == p.brush_slider.decrease:
+            self.width = max(1, self.width-1)
+        elif point == p.brush_slider.increase:
+            self.width = min(256, self.width+1)
         elif point[1] == 404:
             assert self.tab == "color"
             self.width = round(1+(point[0]-590)*255/130)
@@ -95,7 +110,7 @@ def test_executor_switches_hidden_tabs_and_uses_adaptive_colors():
     plan = Plan((555, 555), strokes, Timing(.00001, .00001, 1000000, 100), 1, "test", [])
     executor = DrawingExecutor(backend, profile)
     assert executor.run(plan) == "finished"
-    assert backend.drawing == [((0, 0, 0), 3), ((255, 0, 0), 7), ((0, 255, 0), 3)]
+    assert backend.drawing == [((0, 0, 0), 2), ((255, 0, 0), 6), ((0, 255, 0), 2)]
     assert backend.clicks.count(profile.color_tab) == 6
     assert profile.size_tab is None
     assert not any(r.contains(*point) for r in profile.forbidden for point in backend.clicks)
@@ -163,7 +178,7 @@ def test_slider_bounds_mapping_and_incomplete_calibration():
 
 
 def test_old_100_range_migrates_once_preserving_custom_geometry(tmp_path):
-    from app.game_profile import FREE_SLIDER_ADAPTER, restrict_game_profile
+    from app.game_profile import FREE_SLIDER_ADAPTER, feedback_slider, restrict_game_profile
     from app.storage import Store
     profile = screenshot_profile(game_state())
     profile.adapter = "roblox-free-slider-v1"
@@ -173,7 +188,7 @@ def test_old_100_range_migrates_once_preserving_custom_geometry(tmp_path):
     store = Store(tmp_path)
     store.save_profile(profile)
     migrated = store.profiles()[profile.name]
-    assert migrated.brush_slider == BrushSlider((600, 410), (730, 410), 1, 256)
+    assert migrated.brush_slider == feedback_slider(BrushSlider((600, 410), (730, 410), 1, 256))
     assert migrated.character == profile.character
     assert migrated.adapter == FREE_SLIDER_ADAPTER and not migrated.verified
     migrated.verified = True
@@ -223,4 +238,63 @@ def test_slider_drag_starts_at_detected_thumb_instead_of_assuming_minimum():
                 Timing(.00001, .00001, 1000000, 100), 1, "test", [])
     assert DrawingExecutor(backend, profile).run(plan) == "finished"
     assert (720, 404) in backend.clicks
-    assert backend.drawing == [((0, 0, 0), 17)]
+    assert backend.drawing == [((0, 0, 0), 16)]
+
+
+def test_unreadable_size_aborts_before_any_canvas_input():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = TabbedBackend(profile)
+    backend.read_brush_size = lambda region: None
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 1)],
+                Timing(), 1, "test", [])
+    with pytest.raises(SafetyError, match="не прочитан"):
+        DrawingExecutor(backend, profile).run(plan)
+    assert not backend.drawing and not backend.pressed
+
+
+def test_unresponsive_controls_abort_instead_of_drawing_with_large_brush():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    class Unresponsive(TabbedBackend):
+        def move(self, x, y):
+            width = self.width
+            super().move(x, y)
+            self.width = width
+        def down(self):
+            if self.point[1] == 404:
+                self.pressed = True
+                self.clicks.append(self.point)
+            else:
+                super().down()
+    backend = Unresponsive(profile)
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 1)],
+                Timing(), 1, "test", [])
+    with pytest.raises(SafetyError, match="в игре 128"):
+        DrawingExecutor(backend, profile).run(plan)
+    assert not backend.drawing and not backend.pressed
+
+
+def test_brush_control_check_never_touches_canvas_or_confirms_profile():
+    profile = screenshot_profile(game_state())
+    backend = TabbedBackend(profile)
+    plan = Plan((555, 555), [], Timing(), 0, "check", [])
+    result = DrawingExecutor(backend, profile).check_brushes(plan, [1, 6, 16, 1])
+    assert "подтверждены" in result
+    assert backend.width == 1 and not backend.drawing and not profile.verified
+    assert not any(r.contains(*p) for p in backend.clicks for r in profile.forbidden)
+
+
+def test_size_is_rechecked_after_changing_color_even_if_width_is_cached():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    class ResetsOnColor(TabbedBackend):
+        def down(self):
+            super().down()
+            if self.point == self.profile.color_tab:
+                self.width = 128
+    backend = ResetsOnColor(profile)
+    strokes = [Stroke(((.2, .4), (.3, .4)), c, 1) for c in [(0, 0, 0), (255, 0, 0)]]
+    plan = Plan((555, 555), strokes, Timing(), 1, "test", [])
+    assert DrawingExecutor(backend, profile).run(plan) == "finished"
+    assert backend.drawing == [((0, 0, 0), 1), ((255, 0, 0), 1)]

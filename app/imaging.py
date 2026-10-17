@@ -22,6 +22,17 @@ def flatten(image: Image.Image) -> Image.Image:
     return Image.alpha_composite(base, rgba).convert("RGB")
 
 
+def blank_white_canvas(image: Image.Image, rect) -> bool:
+    # Ignore the frame and a few cursor/AA pixels; an old black drawing must not
+    # remain underneath a plan that intentionally leaves white areas unpainted.
+    a = np.asarray(image.convert("RGB").crop((rect.x+2, rect.y+2,
+                                              rect.x+rect.width-2, rect.y+rect.height-2)))
+    if not a.size:
+        return False
+    nonwhite = int(np.count_nonzero(np.min(a, axis=2) < 240))
+    return nonwhite <= max(20, a.shape[0]*a.shape[1]*.001)
+
+
 def prepare(image: Image.Image, size: tuple[int, int], crop: bool = False,
             style: str = "Anime", remove_background: bool = False) -> Image.Image:
     image = flatten(image)

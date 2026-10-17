@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 from PIL import Image
 
-from app.imaging import open_image, prepare
+from app.imaging import blank_white_canvas, open_image, prepare
 from app.models import Calibration, Plan, Rect, Stroke, Timing
 from app.storage import Store
 
@@ -66,6 +66,15 @@ def test_letterbox_is_white_and_alpha_is_composited():
     assert prepared.getpixel((50, 50)) == (255, 0, 0)
     blank = prepare(Image.new("RGBA", (50, 50), (0, 0, 0, 0)), (50, 50))
     assert blank.getpixel((25, 25)) == (255, 255, 255)
+
+
+def test_old_black_canvas_cannot_be_used_as_blank_background():
+    rect = Rect(10, 10, 100, 100)
+    white = Image.new("RGB", (120, 120), "white")
+    assert blank_white_canvas(white, rect)
+    white.putpixel((50, 50), (0, 0, 0))  # A cursor dot should not block drawing.
+    assert blank_white_canvas(white, rect)
+    assert not blank_white_canvas(Image.new("RGB", (120, 120), "black"), rect)
 
 
 @pytest.mark.parametrize("extension", ["png", "jpg", "webp"])

@@ -104,12 +104,155 @@ class DrawingExecutor:
         x, y = point
         self._move(self._session.client.x + x, self._session.client.y + y)
         self._guard()
+        feedback = self.profile.brush_slider is not None and self.profile.brush_slider.readout is not None
+        if feedback:
+            self._wait(.04)  # Allow Roblox a frame to process the cursor move.
+        self._guard()
         try:
             self.backend.down()
-            self._wait(plan.timing.event)
+            self._wait(max(.05, plan.timing.event) if feedback else plan.timing.event)
         finally:
             self.backend.up()
-        self._wait(plan.timing.settle)
+        self._wait(max(.10, plan.timing.settle) if feedback else plan.timing.settle)
+
+    def _brush_failure(self, expected, observed, reason):
+        diagnostic = getattr(self.backend, "save_size_diagnostic", None)
+        path = ""
+        if diagnostic:
+            try:
+                path = " Снимок числа: "+diagnostic(expected, observed)
+            except OSError:
+                pass
+        actual = str(observed) if observed is not None else "не прочитан"
+        raise SafetyError(f"Размер кисти: запрошен {expected}, в игре {actual}. {reason} "
+                          "Рисование остановлено до штриха."+path)
+
+    def _read_brush(self, expected):
+        slider = self.profile.brush_slider
+        assert slider and slider.readout and self._session
+        reader = getattr(self.backend, "read_brush_size", None)
+        if reader is None:
+            self._brush_failure(expected, None, "Нет проверки числа размера.")
+        r = slider.readout
+        area = Rect(self._session.client.x+r.x, self._session.client.y+r.y, r.width, r.height)
+        previous = None
+        for attempt in range(5):
+            self._guard()
+            for x, y in [(area.x, area.y), (area.x+area.width-1, area.y+area.height-1)]:
+                if not self.backend.point_belongs_to_target(x, y):
+                    self._brush_failure(expected, None, "Число размера перекрыто другим окном.")
+            value = reader(area)
+            if value is not None and slider.minimum <= value <= slider.maximum and value == previous:
+                return value
+            previous = value
+            self._wait(.06)
+        self._brush_failure(expected, previous, "Число не распознано уверенно или ещё меняется.")
+
+    def _drag_slider(self, destination, plan, feedback):
+        slider = self.profile.brush_slider
+        assert slider and self._session
+        ox, oy = self._session.client.x, self._session.client.y
+        origin = slider.point(self._width) if self._width is not None else slider.start
+        locator = getattr(self.backend, "slider_thumb", None)
+        if locator:
+            self._guard()
+            found = locator((ox+slider.start[0], oy+slider.start[1]), (ox+slider.end[0], oy+slider.end[1]))
+            if found is None:
+                raise SafetyError("Не найден синий бегунок бесплатного размера кисти. "
+                                  "Откройте Цвет → Колесо, закройте список стилей и повторите TEST DRAW.")
+            origin = found[0]-ox, found[1]-oy
+        self._move(ox+origin[0], oy+origin[1])
+        if feedback:
+            self._wait(.06)
+        self._guard()
+        try:
+            self.backend.down()
+            self._wait(.08 if feedback else plan.timing.event)
+            steps = max(1, math.ceil(math.dist(origin, destination)/6))
+            for i in range(1, steps+1):
+                self._move(ox+round(origin[0]+(destination[0]-origin[0])*i/steps),
+                           oy+round(origin[1]+(destination[1]-origin[1])*i/steps))
+                self._wait(.025 if feedback else plan.timing.event)
+            if feedback:
+                self._wait(.05)
+        finally:
+            self.backend.up()
+        self._wait(max(.12, plan.timing.settle) if feedback else plan.timing.settle)
+
+    def _set_brush(self, width, plan):
+        slider = self.profile.brush_slider
+        if not slider:
+            if self.profile.size_tab:
+                self._click(self.profile.size_tab, plan)
+            self._click(next(b.point for b in self.profile.brushes if b.pixels == width), plan)
+            self._width = width
+            return
+        if self.profile.color_tab:
+            self._click(self.profile.color_tab, plan)
+        if not slider.readout:
+            self._drag_slider(slider.point(width), plan, False)
+            self._width = width
+            return
+        current = self._read_brush(width)
+        if current != width:
+            # The direct position is only an initial guess; the displayed number is authoritative.
+            destination = slider.point(width)
+            low, high = min(slider.start[0], slider.end[0]), max(slider.start[0], slider.end[0])
+            for attempt in range(4):
+                self._drag_slider(destination, plan, True)
+                current = self._read_brush(width)
+                if current == width or abs(current-width) <= 8:
+                    break
+                if current < width:
+                    low = max(low, destination[0]+1)
+                else:
+                    high = min(high, destination[0]-1)
+                if low > high:
+                    break
+                destination = ((low+high)//2, slider.start[1])
+            clicks = 0
+            while current != width and clicks < 32:
+                arrow = slider.increase if current < width else slider.decrease
+                self._click(arrow, plan)
+                clicks += 1
+                observed = self._read_brush(width)
+                if observed == current:
+                    self._brush_failure(width, observed, "Бесплатная стрелка размера не сработала.")
+                current = observed
+            if current != width:
+                self._brush_failure(width, current, "Не удалось выставить точный размер бесплатным регулятором.")
+        self._width = width
+
+    def check_brushes(self, plan, widths, progress=lambda *_: None):
+        """Exercise only free brush controls; never move onto the drawing canvas."""
+        if not widths or not self.profile.brush_slider or not self.profile.brush_slider.readout:
+            raise SafetyError("Для проверки нужны размеры и область числа бесплатного ползунка")
+        for width in widths:
+            self.profile.brush_slider.point(width)
+        self._session = self._guard()
+        self._deadline = time.monotonic()+60
+        try:
+            for index, width in enumerate(widths):
+                if width not in {b.pixels for b in self.profile.brushes}:
+                    raise SafetyError("Размер не калиброван")
+                while True:
+                    try:
+                        self._set_brush(width, plan)
+                        break
+                    except _Paused:
+                        self.backend.up()
+                        while self.pause_event.is_set():
+                            if self.stop_event.wait(.025):
+                                raise InterruptedError("Проверка остановлена")
+                        self._interrupted.clear()
+                        self._guard()
+                        self._width = None
+                progress((index+1)/len(widths), f"Размер {width} подтверждён по числу в игре")
+            return "Размеры "+", ".join(map(str, widths))+" подтверждены. Теперь выполните TEST DRAW."
+        except InterruptedError:
+            return "Проверка размера остановлена."
+        finally:
+            self.backend.up()
 
     def validate_plan(self, plan: Plan, require_verified: bool = True) -> None:
         if self.profile.brush_slider:
@@ -184,6 +327,7 @@ class DrawingExecutor:
 
     def _execute(self, stroke: Stroke, plan: Plan, started: float,
                  time_limit: float | None) -> None:
+        color_changed = self._color != stroke.color
         if not self._tool_selected and self.profile.brush_tool:
             self._click(self.profile.brush_tool, plan)
             self._tool_selected = True
@@ -210,43 +354,9 @@ class DrawingExecutor:
                 if max(abs(a-b) for a, b in zip(actual, stroke.color)) > self.profile.color_tolerance:
                     raise SafetyError("Индикатор цвета не совпал с палитрой. Проверьте калибровку.")
             self._color = stroke.color
-        if self._width != stroke.width:
-            slider = self.profile.brush_slider
-            if slider:
-                # Reopen the free panel even when color did not change between strokes.
-                if self.profile.color_tab:
-                    self._click(self.profile.color_tab, plan)
-                destination = slider.point(stroke.width)
-                origin = slider.point(self._width) if self._width is not None else slider.start
-                assert self._session
-                ox, oy = self._session.client.x, self._session.client.y
-                locator = getattr(self.backend, "slider_thumb", None)
-                if locator:
-                    self._guard()
-                    found = locator((ox+slider.start[0], oy+slider.start[1]),
-                                    (ox+slider.end[0], oy+slider.end[1]))
-                    if found is None:
-                        raise SafetyError("Не найден синий бегунок бесплатного размера кисти. "
-                                          "Откройте Цвет → Колесо, закройте список стилей и повторите TEST DRAW.")
-                    origin = found[0]-ox, found[1]-oy
-                self._move(ox+origin[0], oy+origin[1])
-                try:
-                    self.backend.down()
-                    self._wait(plan.timing.event)
-                    steps = max(1, math.ceil(math.dist(origin, destination)/8))
-                    for i in range(1, steps+1):
-                        self._move(ox+round(origin[0]+(destination[0]-origin[0])*i/steps),
-                                   oy+round(origin[1]+(destination[1]-origin[1])*i/steps))
-                        self._wait(plan.timing.event)
-                finally:
-                    self.backend.up()
-                self._wait(plan.timing.settle)
-            else:
-                if self.profile.size_tab:
-                    self._click(self.profile.size_tab, plan)
-                brush = next(b for b in self.profile.brushes if b.pixels == stroke.width)
-                self._click(brush.point, plan)
-            self._width = stroke.width
+        feedback = self.profile.brush_slider and self.profile.brush_slider.readout
+        if self._width != stroke.width or (feedback and color_changed):
+            self._set_brush(stroke.width, plan)
         assert self._session
         canvas = self.profile.canvas
         local_points = [canvas.map(p, stroke.width / 2 + 1) for p in stroke.points]

@@ -3,7 +3,7 @@ import time
 from PIL import Image, ImageDraw
 from PySide6.QtWidgets import QMessageBox
 
-from app.models import Timing
+from app.models import Plan, Rect, Stroke, Timing
 from app.storage import Store
 from app.ui.panel import MainWindow
 from app.ui.test_canvas import COLORS
@@ -57,3 +57,21 @@ def test_ui_import_preview_calibration_test_and_run_end_to_end(qapp, tmp_path, m
     panel.icon.close()
     panel.local_canvas.close()
     panel.hide()
+
+
+def test_canvas_flood_during_test_draw_is_rejected_without_confirmation(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.game_profile import screenshot_profile
+    from app.automation import WindowState
+    errors = []
+    state = WindowState(123, "Roblox", "Game", "RobloxPlayerBeta.exe", Rect(0, 0, 1366, 768), 96)
+    panel = SimpleNamespace(profile=screenshot_profile(state), store=Store(tmp_path/"data"),
+                            _get_target=lambda: state,
+                            _screenshot=lambda target: Image.new("RGB", (1366, 768), "black"),
+                            error=errors.append)
+    panel.profile.verified = True
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("Must reject automatically")))
+    plan = Plan((555, 555), [Stroke(((.42, .5), (.58, .5)), (0, 0, 0), 1)], Timing(), 1, "test", [])
+    MainWindow._test_finished(panel, "finished", Image.new("RGB", (1366, 768), "white"), plan)
+    assert errors and "далеко" in errors[0]
+    assert not panel.profile.verified

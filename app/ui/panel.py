@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDia
 
 from app.ai import OpenAIImageProvider, ProviderSettings, read_key, save_key
 from app.automation import DrawingExecutor, SafetyError
-from app.imaging import open_image
+from app.imaging import blank_white_canvas, open_image
 from app.game_profile import selection_clicks
 from app.models import Plan, Rect, Stroke, Timing, estimate_plan
 from app.planner import PlanOptions, build_plan, render_plan
@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
         self.store = store or Store()
         self.settings = self.store.settings()
         self.profiles = self.store.profiles()
-        self.setWindowTitle("ANIME DRAWER")
+        self.setWindowTitle("ANIME DRAWER · SIZE CHECK")
         self.setStyleSheet(STYLE)
         self.setWindowOpacity(.98)
         self.setAcceptDrops(True)
@@ -178,7 +178,7 @@ class MainWindow(QMainWindow):
                    ("PREVIEW", self.make_plan), ("CALIBRATE", self.calibrate), ("TEST DRAW", self.test_draw),
                    ("LOCAL CANVAS", self.open_test_canvas), ("AI SETTINGS", self.ai_settings), ("CROP IMAGE", self.crop_image),
                    ("LOAD PLAN", self.load_plan), ("SAVE PLAN", self.save_plan), ("DEBUG OVERLAY", self.show_debug),
-                   ("EXPORT PREVIEW PNG", self.export_preview)]
+                   ("EXPORT PREVIEW PNG", self.export_preview), ("CHECK BRUSH SIZE", self.check_brush_size)]
         for i, (label, function) in enumerate(buttons):
             if i < 6:
                 button = QPushButton(label)
@@ -783,6 +783,48 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.error(str(exc))
 
+    def check_brush_size(self):
+        if not self._require_free():
+            return
+        try:
+            p = self.profile
+            if not p or not p.brush_slider or not p.brush_slider.readout:
+                raise ValueError("Сначала CALIBRATE → профиль игры без доната с проверкой числа размера.")
+            if not self.hotkeys_ready:
+                raise SafetyError("Нужна рабочая аварийная остановка F9")
+            if self._get_target() is None:
+                return
+            executor = DrawingExecutor(self._backend(), p)
+            self.executor = executor
+            self._activate_target()
+            self._pending_run = True
+            self.set_state("CHECKING BRUSH")
+            def launch():
+                self._pending_run = False
+                if executor.stop_event.is_set():
+                    self.executor = None
+                    self.show()
+                    self.icon.show()
+                    self.set_state("IDLE")
+                    if self._closing:
+                        QTimer.singleShot(0, self.quit_app)
+                    return
+                sizes = [n for n in (1, 6, 16, 1) if n in {b.pixels for b in p.brushes}]
+                if not sizes:
+                    available = sorted({b.pixels for b in p.brushes})
+                    sizes = available[:3]+available[:1]
+                plan = Plan((p.canvas.width, p.canvas.height), [], Timing.preset("Safe"), 0, "brush-check", [])
+                job = Job(lambda j: executor.check_brushes(plan, sizes, j.progress.emit), self)
+                def finished(message):
+                    self.show()
+                    self.icon.show()
+                    self.log.setText(message)
+                    self.set_state("IDLE")
+                self._start_job(job, finished)
+            QTimer.singleShot(500, launch)
+        except Exception as exc:
+            self.error(str(exc))
+
     def test_draw(self):
         if not self._require_free():
             return
@@ -839,12 +881,16 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(0, self.quit_app)
             return
         try:
-            before = self._screenshot(self._get_target()) if test else None
+            snapshot = self._screenshot(self._get_target())
+            if not blank_white_canvas(snapshot, self.profile.canvas):
+                raise SafetyError("Холст уже закрашен или не белый. Очистите его в игре перед TEST DRAW / RUN. "
+                                  "Белые области плана рассчитаны на пустой белый фон.")
+            before = snapshot if test else None
             job = DrawJob(lambda j: executor.run(plan, j.stats.emit, j.state.emit, limit, not test), self)
             job.stats.connect(self.live_stats)
             job.state.connect(self.set_state)
             if test:
-                done = lambda outcome: self._test_finished(outcome, before)
+                done = lambda outcome: self._test_finished(outcome, before, plan)
             else:
                 done = lambda outcome: self._draw_finished(outcome, plan, executor.completed)
             self._start_job(job, done)
@@ -852,7 +898,7 @@ class MainWindow(QMainWindow):
             self.executor = None
             self.error(str(exc))
 
-    def _test_finished(self, outcome, before):
+    def _test_finished(self, outcome, before, test_plan=None):
         if outcome != "finished":
             self.show()
             self.log.setText("TEST DRAW остановлен; профиль не подтверждён.")
@@ -860,6 +906,28 @@ class MainWindow(QMainWindow):
         try:
             after = self._screenshot(self._get_target())
             r = self.profile.canvas
+            if test_plan is not None:
+                bounds = (r.x, r.y, r.x+r.width, r.y+r.height)
+                a = np.asarray(before.crop(bounds), np.int16)
+                b = np.asarray(after.crop(bounds), np.int16)
+                changed_mask = np.max(np.abs(a-b), axis=2) > 20
+                allowed = np.zeros(changed_mask.shape, dtype=bool)
+                for stroke in test_plan.strokes:
+                    points = [r.map(p, stroke.width/2+1) for p in stroke.points]
+                    padding = max(3, int(np.ceil(stroke.width/2))+2)
+                    x0 = max(0, min(p[0] for p in points)-r.x-padding)
+                    x1 = min(r.width, max(p[0] for p in points)-r.x+padding+1)
+                    y0 = max(0, min(p[1] for p in points)-r.y-padding)
+                    y1 = min(r.height, max(p[1] for p in points)-r.y+padding+1)
+                    allowed[y0:y1, x0:x1] = True
+                outside = int(np.count_nonzero(changed_mask & ~allowed))
+                if outside > max(12, np.count_nonzero(changed_mask)*.05):
+                    self.profile.verified = False
+                    self.store.save_profile(self.profile)
+                    self.error("TEST DRAW: след вышел далеко за границы тестовых линий. "
+                               "Толщина или инструмент не соответствуют профилю. "
+                               "RUN заблокирован; выполните CHECK BRUSH SIZE и проверьте обычную кисть.")
+                    return
             # Inspect the actual test-line region, not animated characters/UI.
             box = (r.x + round(r.width * .38), r.y + round(r.height * .46),
                    r.x + round(r.width * .62), r.y + round(r.height * .54))

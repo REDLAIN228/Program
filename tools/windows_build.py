@@ -11,6 +11,7 @@ def build_application(root, interpreter, log, run):
         [str(interpreter), "-m", "pytest", "-q"],
         [str(interpreter), "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--onedir",
          "--name", "AnimeDrawer", "--icon", str(root / "assets/anime-drawer.ico"),
+         "--add-data", str(root / "assets/size-digits.npz")+";assets",
          "--collect-all", "mss", "--collect-all", "keyring",
          "--hidden-import", "keyring.backends.Windows", str(root / "main.py")],
     ]

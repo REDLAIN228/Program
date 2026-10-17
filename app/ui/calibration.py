@@ -150,7 +150,8 @@ class CalibrationDialog(QDialog):
             minimum, maximum = map(int, value.replace(",", " ").split())
             if not 1 <= minimum < maximum <= 4096:
                 raise ValueError()
-            replacement = BrushSlider(slider.start, slider.end, minimum, maximum)
+            from dataclasses import replace
+            replacement = replace(slider, minimum=minimum, maximum=maximum)
             choices = [n for n in (1, 2, 6, 16, 32, 64) if minimum <= n <= maximum]
             if not choices:
                 choices = [minimum]
@@ -184,7 +185,7 @@ class CalibrationDialog(QDialog):
         self.refresh()
 
     def set_mode(self, mode):
-        if mode == "tabs" and self.adapter in {"roblox-free-slider-v1", FREE_SLIDER_ADAPTER}:
+        if mode == "tabs" and self.adapter in {"roblox-free-slider-v1", "roblox-free-slider-v2", FREE_SLIDER_ADAPTER}:
             self.instructions.setText("Вкладка Размер — донатная. В этом профиле используется бесплатный ползунок.")
             return
         if mode == "brush":

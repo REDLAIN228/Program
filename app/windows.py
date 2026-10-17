@@ -202,6 +202,25 @@ class Win32Backend:
                                  "width": abs(end[0]-start[0])+21, "height": 1})
         return blue_thumb(Image.frombytes("RGB", shot.size, shot.rgb), (left, top))
 
+    def read_brush_size(self, region):
+        import mss
+        from PIL import Image
+        from app.size_ocr import read_size
+        with mss.mss() as capture:
+            shot = capture.grab({"left": region.x, "top": region.y,
+                                 "width": region.width, "height": region.height})
+        self._size_image = Image.frombytes("RGB", shot.size, shot.rgb)
+        return read_size(self._size_image)
+
+    def save_size_diagnostic(self, expected, observed):
+        from app.storage import data_directory, write_json
+        directory = data_directory()/"logs"
+        directory.mkdir(parents=True, exist_ok=True)
+        if getattr(self, "_size_image", None) is not None:
+            self._size_image.save(directory/"brush-size.png")
+        write_json(directory/"brush-size.json", {"expected": expected, "observed": observed})
+        return str(directory/"brush-size.png")
+
 
 class GlobalHotkeys:
     """F8 pause/resume, F9 emergency stop. Registration must succeed before RUN."""

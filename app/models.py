@@ -69,6 +69,9 @@ class BrushSlider:
     end: tuple[int, int]
     minimum: int | None = None
     maximum: int | None = None
+    readout: Rect | None = None
+    decrease: tuple[int, int] | None = None
+    increase: tuple[int, int] | None = None
 
     def point(self, pixels: int) -> tuple[int, int]:
         if self.minimum is None or self.maximum is None:
@@ -121,6 +124,14 @@ class Calibration:
         if self.brush_slider:
             slider = self.brush_slider
             controls += [slider.start, slider.end]
+            controls += [p for p in [slider.decrease, slider.increase] if p is not None]
+            if slider.readout:
+                r = slider.readout
+                if r.width < 5 or r.height < 5:
+                    raise ValueError("Слишком маленькая область числа размера кисти")
+                controls += [(r.x, r.y), (r.x+r.width-1, r.y+r.height-1)]
+                if slider.decrease is None or slider.increase is None:
+                    raise ValueError("Для проверки размера нужны бесплатные стрелки ползунка")
             if math.dist(slider.start, slider.end) < 16:
                 raise ValueError("Слишком короткий ползунок кисти")
             if (slider.minimum is None) != (slider.maximum is None):
@@ -182,7 +193,10 @@ class Calibration:
             color_tab=tuple(d["color_tab"]) if d.get("color_tab") else None,
             size_tab=tuple(d["size_tab"]) if d.get("size_tab") else None,
             brush_slider=(BrushSlider(tuple(d["brush_slider"]["start"]), tuple(d["brush_slider"]["end"]),
-                                      d["brush_slider"].get("minimum"), d["brush_slider"].get("maximum"))
+                                      d["brush_slider"].get("minimum"), d["brush_slider"].get("maximum"),
+                                      Rect(**d["brush_slider"]["readout"]) if d["brush_slider"].get("readout") else None,
+                                      tuple(d["brush_slider"]["decrease"]) if d["brush_slider"].get("decrease") else None,
+                                      tuple(d["brush_slider"]["increase"]) if d["brush_slider"].get("increase") else None)
                           if d.get("brush_slider") else None),
             forbidden=[Rect(**r) for r in d.get("forbidden", [])],
             adapter=d.get("adapter"),
