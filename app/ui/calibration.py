@@ -1,23 +1,25 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from PIL import Image
 from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen
-from PySide6.QtWidgets import (QColorDialog, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog,
+from PySide6.QtGui import QColor, QKeySequence, QMouseEvent, QPainter, QPen, QShortcut
+from PySide6.QtWidgets import (QColorDialog, QDialog, QDialogButtonBox, QGridLayout, QHBoxLayout, QInputDialog,
                                QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QVBoxLayout)
 
 from app.automation import WindowState
 from app.models import Brush, Calibration, Rect, Swatch
-from app.ui.common import STYLE, pixmap
+from app.ui.common import STYLE, fit_window, pixmap
 
 
 class ClickImage(QLabel):
     clicked = Signal(int, int)
 
-    def __init__(self, image: Image.Image):
+    def __init__(self, image: Image.Image, max_size=(1000, 620)):
         super().__init__()
         self.image = image
-        self.factor = min(1., 1000 / image.width, 620 / image.height)
+        self.factor = min(1., max_size[0] / image.width, max_size[1] / image.height)
         self.setFixedSize(round(image.width * self.factor), round(image.height * self.factor))
         self.markers = []
         self.debug_rects = []
@@ -53,27 +55,37 @@ class CalibrationDialog(QDialog):
         self.anchors = []
         self.mode, self.first = "canvas", None
         self.pending_width = 3
+        self.history = []
         layout = QVBoxLayout(self)
         self.name = QLineEdit("Roblox · " + str(state.client.width) + "×" + str(state.client.height))
         layout.addWidget(self.name)
         self.instructions = QLabel("Холст: отметьте верхний левый и нижний правый углы ВНУТРИ рамки.")
         self.instructions.setWordWrap(True)
         layout.addWidget(self.instructions)
-        row = QHBoxLayout()
-        for label, mode in [("Холст · 2 точки", "canvas"), ("Персонаж · 2 точки", "character"),
-                            ("Кисть · инструмент", "tool"), ("+ Цвет палитры", "swatch"),
-                            ("+ Размер кисти", "brush"), ("Индикатор цвета", "indicator")]:
+        row = QGridLayout()
+        for index, (label, mode) in enumerate([
+                ("1. Холст · 2 точки", "canvas"), ("2. + Цвет палитры", "swatch"),
+                ("3. + Размер кисти", "brush"), ("Кисть · инструмент", "tool"),
+                ("Персонаж · 2 точки", "character"), ("Индикатор цвета", "indicator")]):
             button = QPushButton(label)
             button.clicked.connect(lambda checked=False, m=mode: self.set_mode(m))
-            row.addWidget(button)
+            row.addWidget(button, index // 3, index % 3)
         layout.addLayout(row)
-        self.picture = ClickImage(image)
+        area = self.screen().availableGeometry()
+        self.picture = ClickImage(image, (max(240, area.width() - 100), max(160, area.height() - 410)))
         self.picture.clicked.connect(self.select)
         scroll = QScrollArea()
         scroll.setWidget(self.picture)
         layout.addWidget(scroll)
-        self.summary = QLabel("Цветов: 0 · размеров: 0")
-        layout.addWidget(self.summary)
+        status = QHBoxLayout()
+        self.summary = QLabel()
+        self.summary.setWordWrap(True)
+        status.addWidget(self.summary, 1)
+        self.undo_button = QPushButton("Отменить точку · Ctrl+Z")
+        self.undo_button.clicked.connect(self.undo)
+        status.addWidget(self.undo_button)
+        layout.addLayout(status)
+        QShortcut(QKeySequence("Ctrl+Z"), self, activated=self.undo)
         notice = QLabel("Откройте постоянную палитру ДО снимка. Добавьте все доступные цвета и размеры. "
                         "Укажите реальную толщину в пикселях, непрозрачность выставьте 100%. "
                         "Индикатор — точка текущего выбранного цвета, а не кнопка палитры. "
@@ -81,10 +93,27 @@ class CalibrationDialog(QDialog):
         notice.setWordWrap(True)
         layout.addWidget(notice)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        self.save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
+        self.save_button.setText("Сохранить профиль")
+        self.save_button.setToolTip("После сохранения выполните TEST DRAW в игре.")
         buttons.accepted.connect(self.save)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        self.resize(min(1100, self.picture.width() + 50), min(850, self.picture.height() + 240))
+        self.refresh()
+        fit_window(self, max(640, self.picture.width() + 50), self.picture.height() + 370)
+
+    def snapshot(self):
+        return deepcopy((self.canvas, self.character, self.tool, self.indicator,
+                         self.swatches, self.brushes, self.anchors, self.mode, self.first, self.pending_width))
+
+    def undo(self):
+        if not self.history:
+            return
+        (self.canvas, self.character, self.tool, self.indicator,
+         self.swatches, self.brushes, self.anchors, self.mode, self.first, self.pending_width) = self.history.pop()
+        self.instructions.setText("Последняя точка отменена. " + (
+            "Отметьте противоположный угол." if self.first else "Выберите шаг и отметьте точку заново."))
+        self.refresh()
 
     def set_mode(self, mode):
         if mode == "brush":
@@ -104,6 +133,7 @@ class CalibrationDialog(QDialog):
         }[mode])
 
     def select(self, x, y):
+        previous = self.snapshot()
         if self.mode in {"canvas", "character"}:
             if self.first is None:
                 self.first = (x, y)
@@ -114,7 +144,8 @@ class CalibrationDialog(QDialog):
                 rect = Rect(min(x0, x), min(y0, y), abs(x-x0) + 1, abs(y-y0) + 1)
                 setattr(self, self.mode, rect)
                 self.first = None
-                self.instructions.setText("Область сохранена. Добавьте цвета и размеры кисти.")
+                self.instructions.setText("Область сохранена. Шаг 2: добавьте цвета; шаг 3: размеры кисти. "
+                                          "Персонаж нужен только для CAPTURE.")
         elif self.mode == "swatch":
             color = QColorDialog.getColor(QColor(*self.picture.image.getpixel((x, y))[:3]), self,
                                            "Подтвердите RGB рисуемого цвета")
@@ -132,12 +163,18 @@ class CalibrationDialog(QDialog):
             self.tool = (x, y)
         elif self.mode == "indicator":
             self.indicator = (x, y)
+        self.history.append(previous)
+        self.refresh()
+
+    def refresh(self):
         self.picture.markers = ([s.point for s in self.swatches] + [b.point for b in self.brushes]
                                 + [p for p in [self.tool, self.indicator, self.first] if p])
         self.picture.debug_rects = [r for r in [self.canvas, self.character] if r]
         self.picture.update()
-        self.summary.setText(f"Цветов: {len(self.swatches)} · размеров: {len(self.brushes)} · "
-                             f"холст: {'да' if self.canvas else 'нет'} · персонаж: {'да' if self.character else 'нет'}")
+        self.summary.setText(f"1. Холст: {'готов' if self.canvas else 'выделите'} · "
+                             f"2. Цветов: {len(self.swatches)} · 3. Размеров: {len(self.brushes)}")
+        self.undo_button.setEnabled(bool(self.history))
+        self.save_button.setEnabled(bool(self.canvas and self.swatches and self.brushes))
 
     def save(self):
         if not self.canvas:

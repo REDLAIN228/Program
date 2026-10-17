@@ -20,7 +20,7 @@ from app.models import Plan, Rect, Stroke, Timing, estimate_plan
 from app.planner import PlanOptions, build_plan, render_plan
 from app.storage import Store
 from app.ui.calibration import CalibrationDialog, ClickImage
-from app.ui.common import Job, Preview, STYLE
+from app.ui.common import Job, Preview, STYLE, fit_window
 from app.ui.floating import FloatingIcon
 from app.ui.test_canvas import QtCanvasBackend, TestCanvas
 
@@ -63,7 +63,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("ANIME DRAWER")
         self.setStyleSheet(STYLE)
         self.setWindowOpacity(.98)
-        self.resize(620, 840)
         self.setAcceptDrops(True)
         self.original = self.processed = self.plan = None
         self.original_source = None
@@ -83,6 +82,7 @@ class MainWindow(QMainWindow):
         self._pending_capture = False
         self._state = "IDLE"
         self._build_ui()
+        fit_window(self, 620, 840)
         self._loading = True
         for key, control in [("draw_style", self.style), ("draw_quality", self.quality),
                              ("draw_speed", self.speed), ("draw_limit", self.limit)]:

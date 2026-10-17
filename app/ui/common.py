@@ -45,6 +45,13 @@ def pil_image(image: QImage) -> Image.Image:
                                     "raw", "RGBA", image.bytesPerLine()))
 
 
+def fit_window(window, width: int, height: int):
+    """Leave room for the native frame and taskbar, using Qt logical pixels."""
+    area = window.screen().availableGeometry()
+    window.resize(min(width, max(1, area.width() - 32)),
+                  min(height, max(1, area.height() - 64)))
+
+
 class Preview(QLabel):
     def __init__(self, text="Нет изображения"):
         super().__init__(text)
