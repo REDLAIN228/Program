@@ -86,7 +86,7 @@ class MainWindow(QMainWindow):
         fit_window(self, 620, 840)
         self._loading = True
         for key, control in [("draw_style", self.style), ("draw_quality", self.quality),
-                             ("draw_speed", self.speed), ("draw_limit", self.limit)]:
+                             ("draw_speed", self.speed), ("draw_limit", self.limit), ("draw_brushwork", self.brushwork)]:
             if self.settings.get(key) and control.findText(self.settings[key]) >= 0:
                 control.setCurrentText(self.settings[key])
         self.crop_fit.setChecked(bool(self.settings.get("draw_crop", False)))
@@ -143,6 +143,9 @@ class MainWindow(QMainWindow):
         self.style = QComboBox()
         self.style.addItems(["Anime", "Manga", "Detailed Anime", "Black & White", "Sketch", "Comic", "Pixel Art", "Custom"])
         form.addRow("ART STYLE", self.style)
+        self.brushwork = QComboBox()
+        self.brushwork.addItems(["По форме", "Построчно"])
+        form.addRow("ШТРИХИ", self.brushwork)
         options = QHBoxLayout()
         self.quality = QComboBox()
         self.quality.addItems(["Fast", "Balanced", "Detailed", "Ultra Detailed"])
@@ -234,7 +237,7 @@ class MainWindow(QMainWindow):
         bottom.addLayout(foot)
         frame_layout.addLayout(bottom)
         self.setCentralWidget(frame)
-        for control in [self.quality, self.style, self.speed, self.source]:
+        for control in [self.quality, self.style, self.speed, self.source, self.brushwork]:
             control.currentTextChanged.connect(self.invalidate_plan)
         self.crop_fit.toggled.connect(self.invalidate_plan)
         self.remove_bg.toggled.connect(self.invalidate_plan)
@@ -305,7 +308,7 @@ class MainWindow(QMainWindow):
         for action in self.actions.values():
             action.setEnabled(False)
         for control in [self.source, self.quality, self.speed, self.style, self.profile_combo,
-                        self.crop_fit, self.remove_bg, self.limit]:
+                        self.crop_fit, self.remove_bg, self.limit, self.brushwork]:
             control.setEnabled(False)
         self.run_button.setEnabled(False)
         job.progress.connect(self.job_progress)
@@ -326,7 +329,7 @@ class MainWindow(QMainWindow):
         for action in self.actions.values():
             action.setEnabled(True)
         for control in [self.source, self.quality, self.speed, self.style, self.profile_combo,
-                        self.crop_fit, self.remove_bg, self.limit]:
+                        self.crop_fit, self.remove_bg, self.limit, self.brushwork]:
             control.setEnabled(True)
         self.run_button.setEnabled(True)
         self.progress.setRange(0, 100)
@@ -349,6 +352,7 @@ class MainWindow(QMainWindow):
             self.stats.setText("Настройки изменены. Нажмите PREVIEW для пересчёта.")
             self.settings.update(draw_style=self.style.currentText(), draw_quality=self.quality.currentText(),
                                  draw_speed=self.speed.currentText(), draw_limit=self.limit.currentText(),
+                                 draw_brushwork=self.brushwork.currentText(),
                                  draw_crop=self.crop_fit.isChecked(), draw_remove_bg=self.remove_bg.isChecked())
             self.store.save_settings(self.settings)
 
@@ -683,7 +687,8 @@ class MainWindow(QMainWindow):
                               self.time_limit(), [s.rgb for s in p.swatches] if p and not p.color_wheel else None,
                               tuple(b.pixels for b in p.brushes) if p else (3, 9, 18),
                               self.crop_fit.isChecked(), self.remove_bg.isChecked(),
-                              *(selection_clicks(p) if p else (1, 1)))
+                              *(selection_clicks(p) if p else (1, 1)),
+                              stroke_style="Shape" if self.brushwork.currentIndex() == 0 else "Scanline")
         original = self.original.copy()
         self.set_state("PROCESSING")
         def process(job):

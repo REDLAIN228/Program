@@ -59,7 +59,12 @@ class Store:
         path = self.root / "profiles.json"
         if not path.exists():
             return {}
-        return {k: Calibration.from_dict(v) for k, v in json.loads(path.read_text("utf-8")).items()}
+        from app.game_profile import restrict_game_profile
+        profiles = {k: Calibration.from_dict(v) for k, v in json.loads(path.read_text("utf-8")).items()}
+        for profile in profiles.values():
+            restrict_game_profile(profile)
+            profile.validate()
+        return profiles
 
     def save_profile(self, profile: Calibration) -> None:
         profile.validate()

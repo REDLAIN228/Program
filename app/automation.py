@@ -37,6 +37,8 @@ class DrawingExecutor:
     """Interruptible ordinary-input runner. Resume replays an incomplete stroke."""
 
     def __init__(self, backend: InputBackend, profile: Calibration):
+        from app.game_profile import restrict_game_profile
+        restrict_game_profile(profile)
         profile.validate()
         self.backend = backend
         self.profile = profile
@@ -48,6 +50,7 @@ class DrawingExecutor:
         self._color = None
         self._width = None
         self._tool_selected = False
+        self._deadline = None
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -64,6 +67,8 @@ class DrawingExecutor:
     def _guard(self) -> WindowState:
         if self.stop_event.is_set():
             raise InterruptedError("Рисование остановлено")
+        if self._deadline is not None and time.monotonic() >= self._deadline:
+            raise SafetyError("Достигнут лимит раунда. Рисование остановлено.")
         state = self.backend.snapshot()
         p = self.profile
         if (state.client.width, state.client.height) != p.client_size or state.dpi != p.dpi:
@@ -89,6 +94,9 @@ class DrawingExecutor:
             raise _Paused()
         if not self.backend.point_belongs_to_target(x, y):
             raise SafetyError("Холст перекрыт другим окном. Рисование остановлено.")
+        assert self._session
+        if any(r.contains(x-self._session.client.x, y-self._session.client.y) for r in self.profile.forbidden):
+            raise SafetyError("Донатная область исключена из управления")
         self.backend.move(x, y)
 
     def _click(self, point: tuple[int, int], plan: Plan) -> None:
@@ -104,6 +112,9 @@ class DrawingExecutor:
         self._wait(plan.timing.settle)
 
     def validate_plan(self, plan: Plan, require_verified: bool = True) -> None:
+        if self.profile.brush_slider:
+            for brush in self.profile.brushes:
+                self.profile.brush_slider.point(brush.pixels)
         if require_verified and not self.profile.verified:
             raise SafetyError("Сначала выполните TEST DRAW и подтвердите калибровку")
         if plan.canvas_size != (self.profile.canvas.width, self.profile.canvas.height):
@@ -123,10 +134,12 @@ class DrawingExecutor:
     def run(self, plan: Plan, progress=lambda *_: None, state=lambda *_: None,
             time_limit: float | None = None, require_verified: bool = True) -> str:
         self.validate_plan(plan, require_verified)
+        self._deadline = None
         self._session = self._guard()
         self._color = self._width = None
         self._tool_selected = False
         started = time.monotonic()
+        self._deadline = started+time_limit if time_limit is not None else None
         pause_seconds = 0.
         try:
             if not self.profile.color_tab:
@@ -198,10 +211,41 @@ class DrawingExecutor:
                     raise SafetyError("Индикатор цвета не совпал с палитрой. Проверьте калибровку.")
             self._color = stroke.color
         if self._width != stroke.width:
-            if self.profile.size_tab:
-                self._click(self.profile.size_tab, plan)
-            brush = next(b for b in self.profile.brushes if b.pixels == stroke.width)
-            self._click(brush.point, plan)
+            slider = self.profile.brush_slider
+            if slider:
+                # Reopen the free panel even when color did not change between strokes.
+                if self.profile.color_tab:
+                    self._click(self.profile.color_tab, plan)
+                destination = slider.point(stroke.width)
+                origin = slider.point(self._width) if self._width is not None else slider.start
+                assert self._session
+                ox, oy = self._session.client.x, self._session.client.y
+                locator = getattr(self.backend, "slider_thumb", None)
+                if locator:
+                    self._guard()
+                    found = locator((ox+slider.start[0], oy+slider.start[1]),
+                                    (ox+slider.end[0], oy+slider.end[1]))
+                    if found is None:
+                        raise SafetyError("Не найден синий бегунок бесплатного размера кисти. "
+                                          "Откройте Цвет → Колесо, закройте список стилей и повторите TEST DRAW.")
+                    origin = found[0]-ox, found[1]-oy
+                self._move(ox+origin[0], oy+origin[1])
+                try:
+                    self.backend.down()
+                    self._wait(plan.timing.event)
+                    steps = max(1, math.ceil(math.dist(origin, destination)/8))
+                    for i in range(1, steps+1):
+                        self._move(ox+round(origin[0]+(destination[0]-origin[0])*i/steps),
+                                   oy+round(origin[1]+(destination[1]-origin[1])*i/steps))
+                        self._wait(plan.timing.event)
+                finally:
+                    self.backend.up()
+                self._wait(plan.timing.settle)
+            else:
+                if self.profile.size_tab:
+                    self._click(self.profile.size_tab, plan)
+                brush = next(b for b in self.profile.brushes if b.pixels == stroke.width)
+                self._click(brush.point, plan)
             self._width = stroke.width
         assert self._session
         canvas = self.profile.canvas

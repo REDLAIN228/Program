@@ -190,6 +190,18 @@ class Win32Backend:
             shot = capture.grab({"left": x, "top": y, "width": 1, "height": 1})
             return tuple(shot.rgb[:3])
 
+    def slider_thumb(self, start, end):
+        import mss
+        from PIL import Image
+        from app.slider import blue_thumb
+        if start[1] != end[1]:
+            return None
+        left, top = min(start[0], end[0])-10, start[1]
+        with mss.mss() as capture:
+            shot = capture.grab({"left": left, "top": top,
+                                 "width": abs(end[0]-start[0])+21, "height": 1})
+        return blue_thumb(Image.frombytes("RGB", shot.size, shot.rgb), (left, top))
+
 
 class GlobalHotkeys:
     """F8 pause/resume, F9 emergency stop. Registration must succeed before RUN."""

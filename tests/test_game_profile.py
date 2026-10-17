@@ -5,7 +5,7 @@ from PIL import Image
 
 from app.automation import DrawingExecutor, SafetyError, WindowState
 from app.game_profile import screenshot_profile, selection_clicks
-from app.models import Calibration, ColorWheel, Plan, Rect, Stroke, Timing, estimate_plan
+from app.models import BrushSlider, Calibration, ColorWheel, Plan, Rect, Stroke, Timing, estimate_plan
 from app.planner import PlanOptions, build_plan
 from app.ui.calibration import CalibrationDialog
 
@@ -29,6 +29,8 @@ def test_game_profile_roundtrip_resolution_and_unverified_status():
     assert not profile.verified
     assert Calibration.from_dict(profile.to_dict()).to_dict() == profile.to_dict()
     assert selection_clicks(profile) == (5, 2)
+    assert profile.brush_slider.minimum == 1 and profile.brush_slider.maximum == 100
+    assert profile.size_tab is None
     with pytest.raises(ValueError, match="1366"):
         screenshot_profile(replace(game_state(), client=Rect(0, 0, 1920, 1080)))
     with pytest.raises(ValueError, match="Roblox"):
@@ -55,6 +57,9 @@ class TabbedBackend:
     def move(self, x, y):
         origin = self.snapshot().client
         self.point = (x-origin.x, y-origin.y)
+        if self.pressed and self.point[1] == 404:
+            assert self.tab == "color"
+            self.width = round(1+(self.point[0]-590)*99/130)
 
     def down(self):
         self.pressed = True
@@ -63,13 +68,11 @@ class TabbedBackend:
             self.drawing.append((self.rgb, self.width))
         elif point == p.color_tab:
             self.tab = "color"
-        elif point == p.size_tab:
-            self.tab = "size"
+        elif point[1] == 404:
+            assert self.tab == "color"
+            self.width = round(1+(point[0]-590)*99/130)
         elif point == p.brush_tool:
             pass
-        elif point in {b.point for b in p.brushes}:
-            assert self.tab == "size", "Clicked a brush on the color tab"
-            self.width = next(b.pixels for b in p.brushes if b.point == point)
         else:
             assert self.tab == "color", "Clicked the color wheel on the size tab"
             # Expected square extremes for black, red, and green; independent of HSV math.
@@ -93,8 +96,9 @@ def test_executor_switches_hidden_tabs_and_uses_adaptive_colors():
     executor = DrawingExecutor(backend, profile)
     assert executor.run(plan) == "finished"
     assert backend.drawing == [((0, 0, 0), 2), ((255, 0, 0), 6), ((0, 255, 0), 2)]
-    assert backend.clicks.count(profile.color_tab) == 3
-    assert backend.clicks.count(profile.size_tab) == 3
+    assert backend.clicks.count(profile.color_tab) == 6
+    assert profile.size_tab is None
+    assert not any(r.contains(*point) for r in profile.forbidden for point in backend.clicks)
     assert not backend.pressed
     profile.verified = False
     with pytest.raises(SafetyError, match="TEST DRAW"):
@@ -123,3 +127,79 @@ def test_calibration_applies_and_undoes_game_preset(qapp):
     assert dialog.color_wheel is None and dialog.canvas is None
     assert not dialog.save_button.isEnabled()
     dialog.close()
+
+
+def test_legacy_paid_preset_is_migrated_and_requires_new_test(tmp_path):
+    from app.storage import Store, write_json
+    old = screenshot_profile(game_state()).to_dict()
+    for key in ["brush_slider", "forbidden", "adapter"]:
+        old.pop(key)
+    old["verified"] = True
+    old["name"] = "Мой переименованный игровой профиль"
+    old["size_tab"] = [705, 100]
+    old["brushes"] = [{"pixels": 2, "point": [628, 143]}]
+    write_json(tmp_path/"profiles.json", {old["name"]: old})
+    profile = Store(tmp_path).profiles()[old["name"]]
+    assert not profile.verified
+    assert profile.size_tab is None
+    assert profile.brush_slider.maximum == 100
+    assert profile.brushes[0].point == profile.brush_slider.start
+    backend = TabbedBackend(profile)
+    executor = DrawingExecutor(backend, profile)
+    executor._session = game_state()
+    for x, y in [(705, 100), (1190, 720), (1250, 720), (1315, 720)]:
+        with pytest.raises(SafetyError, match="Донат"):
+            executor._move(game_state().client.x+x, game_state().client.y+y)
+    assert not backend.clicks
+
+
+def test_slider_bounds_mapping_and_incomplete_calibration():
+    slider = BrushSlider((590, 404), (720, 404), 1, 100)
+    assert slider.point(1) == (590, 404)
+    assert slider.point(100) == (720, 404)
+    assert slider.point(50) == (654, 404)
+    with pytest.raises(ValueError): slider.point(101)
+    with pytest.raises(ValueError): BrushSlider((590, 404), (720, 404)).point(5)
+
+
+def test_stop_during_slider_drag_releases_mouse():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = TabbedBackend(profile)
+    executor = DrawingExecutor(backend, profile)
+    move = backend.move
+    def stop_on_slider(x, y):
+        move(x, y)
+        if backend.pressed and y-game_state().client.y == 404:
+            executor.stop()
+    backend.move = stop_on_slider
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 64)],
+                Timing(.00001, .00001, 1000000, 100), 1, "test", [])
+    assert executor.run(plan) == "stopped"
+    assert not backend.pressed and not backend.drawing
+
+
+def test_missing_slider_thumb_prevents_drawing():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = TabbedBackend(profile)
+    backend.slider_thumb = lambda start, end: None
+    executor = DrawingExecutor(backend, profile)
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 16)],
+                Timing(.00001, .00001, 1000000, 100), 1, "test", [])
+    with pytest.raises(SafetyError, match="бегунок"):
+        executor.run(plan)
+    assert not backend.drawing and not backend.pressed
+
+
+def test_slider_drag_starts_at_detected_thumb_instead_of_assuming_minimum():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = TabbedBackend(profile)
+    origin = game_state().client
+    backend.slider_thumb = lambda start, end: (origin.x+720, origin.y+404)
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 16)],
+                Timing(.00001, .00001, 1000000, 100), 1, "test", [])
+    assert DrawingExecutor(backend, profile).run(plan) == "finished"
+    assert (720, 404) in backend.clicks
+    assert backend.drawing == [((0, 0, 0), 16)]

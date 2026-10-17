@@ -63,6 +63,22 @@ class ColorWheel:
         return [ring] + ([self.value_reset] if self.value_reset else []) + [square]
 
 
+@dataclass(frozen=True)
+class BrushSlider:
+    start: tuple[int, int]
+    end: tuple[int, int]
+    minimum: int | None = None
+    maximum: int | None = None
+
+    def point(self, pixels: int) -> tuple[int, int]:
+        if self.minimum is None or self.maximum is None:
+            raise ValueError("Укажите минимум и максимум бесплатного ползунка в CALIBRATE → Диапазон ползунка.")
+        if not self.minimum <= pixels <= self.maximum or self.maximum <= self.minimum:
+            raise ValueError("Размер кисти вне диапазона бесплатного ползунка")
+        t = (pixels-self.minimum) / (self.maximum-self.minimum)
+        return tuple(round(a+t*(b-a)) for a, b in zip(self.start, self.end))
+
+
 @dataclass
 class Calibration:
     name: str
@@ -84,6 +100,9 @@ class Calibration:
     color_wheel: ColorWheel | None = None
     color_tab: tuple[int, int] | None = None
     size_tab: tuple[int, int] | None = None
+    brush_slider: BrushSlider | None = None
+    forbidden: list[Rect] = field(default_factory=list)
+    adapter: str | None = None
 
     def validate(self) -> None:
         w, h = self.client_size
@@ -99,6 +118,17 @@ class Calibration:
                 raise ValueError("Область выходит за границы игрового окна")
         controls = [s.point for s in self.swatches + self.anchors] + [b.point for b in self.brushes]
         controls += [p for p in [self.brush_tool, self.color_indicator, self.color_tab, self.size_tab] if p is not None]
+        if self.brush_slider:
+            slider = self.brush_slider
+            controls += [slider.start, slider.end]
+            if math.dist(slider.start, slider.end) < 16:
+                raise ValueError("Слишком короткий ползунок кисти")
+            if (slider.minimum is None) != (slider.maximum is None):
+                raise ValueError("Укажите обе границы диапазона ползунка")
+            if slider.minimum is not None:
+                if not 1 <= slider.minimum < slider.maximum <= 4096:
+                    raise ValueError("Некорректный диапазон ползунка")
+                controls += [slider.point(b.pixels) for b in self.brushes]
         if self.color_wheel:
             wheel = self.color_wheel
             radius = math.dist(wheel.center, wheel.red)
@@ -120,6 +150,8 @@ class Calibration:
             raise ValueError("Элемент управления вне окна")
         if any(self.canvas.contains(*p) for p in controls):
             raise ValueError("Кнопки палитры и кисти не должны находиться на холсте")
+        if any(r.contains(*p) for r in self.forbidden for p in controls):
+            raise ValueError("Элемент управления попал в запрещённую донатную область")
         if any(b.pixels < 1 or b.pixels >= min(self.canvas.width, self.canvas.height)
                for b in self.brushes):
             raise ValueError("Некорректная ширина кисти")
@@ -149,6 +181,11 @@ class Calibration:
                          if d.get("color_wheel") else None),
             color_tab=tuple(d["color_tab"]) if d.get("color_tab") else None,
             size_tab=tuple(d["size_tab"]) if d.get("size_tab") else None,
+            brush_slider=(BrushSlider(tuple(d["brush_slider"]["start"]), tuple(d["brush_slider"]["end"]),
+                                      d["brush_slider"].get("minimum"), d["brush_slider"].get("maximum"))
+                          if d.get("brush_slider") else None),
+            forbidden=[Rect(**r) for r in d.get("forbidden", [])],
+            adapter=d.get("adapter"),
         )
         p.validate()
         return p

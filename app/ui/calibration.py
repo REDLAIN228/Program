@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QColorDialog, QDialog, QDialogButtonBox, QGridLay
                                QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QVBoxLayout)
 
 from app.automation import WindowState
-from app.models import Brush, Calibration, ColorWheel, Rect, Swatch
+from app.models import Brush, BrushSlider, Calibration, ColorWheel, Rect, Swatch
 from app.game_profile import screenshot_profile
 from app.ui.common import STYLE, fit_window, pixmap
 
@@ -56,6 +56,7 @@ class CalibrationDialog(QDialog):
         self.anchors = []
         self.color_wheel = None
         self.color_tab = self.size_tab = None
+        self.brush_slider, self.forbidden, self.adapter = None, [], None
         self.wheel_points = []
         self.mode, self.first = "canvas", None
         self.pending_width = 3
@@ -63,9 +64,14 @@ class CalibrationDialog(QDialog):
         layout = QVBoxLayout(self)
         self.name = QLineEdit("Roblox · " + str(state.client.width) + "×" + str(state.client.height))
         layout.addWidget(self.name)
-        preset = QPushButton("Профиль по скринам игры · 1366×768 · HSV")
+        preset = QPushButton("Профиль игры · 1366×768 · без доната")
         preset.clicked.connect(self.apply_game_preset)
-        layout.addWidget(preset)
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(preset, 1)
+        self.slider_range_button = QPushButton("Диапазон ползунка")
+        self.slider_range_button.clicked.connect(self.set_slider_range)
+        preset_row.addWidget(self.slider_range_button)
+        layout.addLayout(preset_row)
         self.instructions = QLabel("Холст: отметьте верхний левый и нижний правый углы ВНУТРИ рамки.")
         self.instructions.setWordWrap(True)
         layout.addWidget(self.instructions)
@@ -95,7 +101,8 @@ class CalibrationDialog(QDialog):
         status.addWidget(self.undo_button)
         layout.addLayout(status)
         QShortcut(QKeySequence("Ctrl+Z"), self, activated=self.undo)
-        notice = QLabel("Для этой игры при 1366×768 используйте профиль по скринам, затем проверьте области. "
+        notice = QLabel("Для этой игры используйте профиль без доната: бесплатный ползунок 1–100. "
+                        "Вкладка Размер и инструменты 6, 7, 8 исключены. "
                         "HSV пока требует проверки в игре через TEST DRAW: чёрная, красная, зелёная полоски. "
                         "Кисть — обычная сплошная, непрозрачность 100%, стабилизатор 0%, увеличение 100%. "
                         "Для других игр можно добавить постоянные цвета вместо HSV.")
@@ -123,6 +130,7 @@ class CalibrationDialog(QDialog):
         self.tool, self.indicator = profile.brush_tool, None
         self.swatches, self.brushes, self.anchors = [], profile.brushes, []
         self.color_wheel, self.color_tab, self.size_tab = profile.color_wheel, profile.color_tab, profile.size_tab
+        self.brush_slider, self.forbidden, self.adapter = profile.brush_slider, profile.forbidden, profile.adapter
         self.first, self.wheel_points = None, []
         self.mode = "character"
         self.instructions.setText("Профиль загружен. Проверьте рамки холста и персонажа. "
@@ -130,23 +138,55 @@ class CalibrationDialog(QDialog):
                                   "После сохранения выполните TEST DRAW.")
         self.refresh()
 
+    def set_slider_range(self):
+        if not self.brush_slider:
+            return
+        slider = self.brush_slider
+        value, ok = QInputDialog.getText(self, "Бесплатный ползунок", "Минимум и максимум из игры, через пробел:",
+                                       text=f"{slider.minimum} {slider.maximum}" if slider.minimum else "")
+        if not ok:
+            return
+        try:
+            minimum, maximum = map(int, value.replace(",", " ").split())
+            if not 1 <= minimum < maximum <= 4096:
+                raise ValueError()
+            replacement = BrushSlider(slider.start, slider.end, minimum, maximum)
+            choices = [n for n in (2, 6, 16, 32, 64) if minimum <= n <= maximum]
+            if not choices:
+                choices = [minimum]
+            if self.canvas and max(choices) >= min(self.canvas.width, self.canvas.height):
+                raise ValueError()
+        except ValueError:
+            QMessageBox.warning(self, "Диапазон", "Нужны два целых числа: 1 ≤ минимум < максимум ≤ 4096.")
+            return
+        self.history.append(self.snapshot())
+        self.brush_slider = replacement
+        self.brushes = [Brush(n, replacement.point(n)) for n in choices]
+        self.instructions.setText("Диапазон сохранён. Проверьте реальную толщину через TEST DRAW.")
+        self.refresh()
+
     def snapshot(self):
         return deepcopy((self.canvas, self.character, self.tool, self.indicator,
                          self.swatches, self.brushes, self.anchors, self.mode, self.first, self.pending_width,
-                         self.color_wheel, self.color_tab, self.size_tab, self.wheel_points, self.name.text()))
+                         self.color_wheel, self.color_tab, self.size_tab, self.wheel_points, self.name.text(),
+                         self.brush_slider, self.forbidden, self.adapter))
 
     def undo(self):
         if not self.history:
             return
         (self.canvas, self.character, self.tool, self.indicator,
          self.swatches, self.brushes, self.anchors, self.mode, self.first, self.pending_width,
-         self.color_wheel, self.color_tab, self.size_tab, self.wheel_points, name) = self.history.pop()
+         self.color_wheel, self.color_tab, self.size_tab, self.wheel_points, name,
+         self.brush_slider, self.forbidden, self.adapter) = self.history.pop()
         self.name.setText(name)
         self.instructions.setText("Последняя точка отменена. " + (
             "Отметьте противоположный угол." if self.first else "Выберите шаг и отметьте точку заново."))
         self.refresh()
 
     def set_mode(self, mode):
+        if mode == "tabs" and self.adapter == "roblox-free-slider-v1":
+            self.instructions.setText("Вкладка Размер — донатная. В этом профиле используется бесплатный ползунок.")
+            return
         if mode == "brush":
             value, ok = QInputDialog.getInt(self, "Размер кисти", "Реальная толщина следа, физические px:",
                                             self.pending_width, 1, 200)
@@ -233,6 +273,8 @@ class CalibrationDialog(QDialog):
         self.picture.markers = ([s.point for s in self.swatches] + [b.point for b in self.brushes]
                                 + [p for p in [self.tool, self.indicator, self.first, self.color_tab, self.size_tab] if p]
                                 + self.wheel_points)
+        if self.brush_slider:
+            self.picture.markers += [self.brush_slider.start, self.brush_slider.end]
         if self.color_wheel:
             self.picture.markers += [self.color_wheel.center, self.color_wheel.red]
         self.picture.debug_rects = [r for r in [self.canvas, self.character] if r]
@@ -243,6 +285,7 @@ class CalibrationDialog(QDialog):
                              f"2. Цвет: {'HSV' if self.color_wheel else str(len(self.swatches))} · "
                              f"3. Размеров: {len(self.brushes)}")
         self.undo_button.setEnabled(bool(self.history))
+        self.slider_range_button.setEnabled(self.brush_slider is not None)
         self.save_button.setEnabled(bool(self.canvas and (self.swatches or self.color_wheel) and self.brushes))
 
     def save(self):
@@ -253,7 +296,8 @@ class CalibrationDialog(QDialog):
                               self.state.process, (self.state.client.width, self.state.client.height),
                               self.state.dpi, self.canvas, self.swatches, self.brushes,
                               self.tool, self.character, color_indicator=self.indicator,
-                              color_wheel=self.color_wheel, color_tab=self.color_tab, size_tab=self.size_tab)
+                              color_wheel=self.color_wheel, color_tab=self.color_tab, size_tab=self.size_tab,
+                              brush_slider=self.brush_slider, forbidden=self.forbidden, adapter=self.adapter)
         profile.anchors = self.anchors
         try:
             profile.validate()

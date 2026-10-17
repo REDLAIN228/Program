@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw
 
 from app.imaging import prepare
 from app.models import Plan, Progress, RGB, Stroke, Timing, estimate_plan
+from app.painter import shape_strokes
 
 
 @dataclass
@@ -26,6 +27,7 @@ class PlanOptions:
     remove_background: bool = False
     color_clicks: int = 1
     brush_clicks: int = 1
+    stroke_style: str = "Shape"
 
 
 def rdp(points: np.ndarray, epsilon: float) -> np.ndarray:
@@ -49,7 +51,10 @@ def _quantize(image: Image.Image, palette: list[RGB] | None, colors: int) -> tup
             # Prefer a smaller subset of actual calibrated swatches; no invented colors.
             return _quantize(image, [palette[i] for i in keep], colors)
         return labels, palette
-    q = image.quantize(colors=colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    # Preserve distinct dark/light/chromatic extremes instead of averaging a black
+    # outline and colored clothing into the same gray when the budget is reduced.
+    method = Image.Quantize.MEDIANCUT if colors >= 12 else Image.Quantize.MAXCOVERAGE
+    q = image.quantize(colors=colors, method=method, dither=Image.Dither.NONE)
     pal = q.getpalette()
     palette = [tuple(pal[3 * i:3 * i + 3]) for i in range(len(pal) // 3)]
     return np.asarray(q), palette
@@ -130,9 +135,12 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         raise ValueError("Палитра должна содержать от 1 до 64 цветов")
     if options.time_limit is not None and options.time_limit <= 0:
         raise ValueError("Лимит времени должен быть положительным")
+    if options.stroke_style not in {"Shape", "Scanline"}:
+        raise ValueError("Неизвестный способ рисования")
     timing = Timing.preset(options.speed)
     grid, colors = {"Fast": (160, 8), "Balanced": (256, 12),
                     "Detailed": (320, 20), "Ultra Detailed": (384, 28)}[options.quality]
+    minimum_colors = min(8, len(options.palette)) if options.palette else 8
     source_hash = hashlib.sha256(image.convert("RGB").tobytes() + str(image.size).encode()).hexdigest()
     best = None
     baseline = None
@@ -143,7 +151,7 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         w, h = max(16, round(cw * ratio)), max(16, round(ch * ratio))
         progress(attempt / 4, f"Сегментация: {w}×{h}")
         prepared = prepare(image, (w, h), options.crop, options.style, options.remove_background)
-        if attempt:
+        if attempt or options.stroke_style == "Shape":
             prepared = Image.fromarray(cv2.medianBlur(np.asarray(prepared), 3))
         labels, palette = _quantize(prepared, options.palette, colors)
         # Simplify color segmentation at a coarse resolution, but never space fill
@@ -169,6 +177,10 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
             if min(color) >= 248:  # White is the explicitly required blank background.
                 continue
             mask = (labels == color_id).astype(np.uint8) * 255
+            if options.stroke_style == "Shape":
+                strokes.extend(shape_strokes(mask, color, widths, options.canvas_size, (ratio_x, ratio_y), cancel))
+                progress((attempt + (idx + 1) / len(color_ids)) / 4, "Штрихи по форме областей")
+                continue
             covered = np.zeros((h, w), np.uint8)
             for brush in widths:
                 hatch_strokes = []
@@ -215,7 +227,11 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
                 strokes.append(Stroke(points, color, brush, priority=1))
             progress((attempt + (idx + 1) / len(color_ids)) / 4, "Планирование штрихов")
         # Fill layers first; short vector contours last. Group by color/width within layers.
-        strokes.sort(key=lambda s: (s.priority, s.color, -s.width))
+        if options.stroke_style == "Shape":
+            # Preserve component order inside each stage instead of scanning the whole image by rows.
+            strokes.sort(key=lambda s: s.priority)
+        else:
+            strokes.sort(key=lambda s: (s.priority, s.color, -s.width))
         estimate = estimate_plan(strokes, options.canvas_size, timing, options.color_clicks, options.brush_clicks)
         plan = Plan(options.canvas_size, strokes, timing, estimate, source_hash,
                     list(dict.fromkeys(s.color for s in strokes)),
@@ -227,7 +243,7 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         if options.time_limit is None or estimate <= options.time_limit:
             break
         grid = max(64, int(grid * .70))
-        colors = max(3, colors // 2)
+        colors = max(minimum_colors, colors // 2)
         # Do not discard calibrated colors or fabricate larger uncalibrated brushes.
         # Grid reduction merges details; a still-over-budget plan is refused at RUN.
     assert best is not None
@@ -237,6 +253,8 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         best = baseline
     plan, prepared, selected_attempt = best
     plan.notes.append("Локальная обработка; это не AI-генерация. Начинайте с пустого белого холста.")
+    plan.notes.append("Штрихи по форме: набросок → отдельные цветовые области → тонкие детали."
+                      if options.stroke_style == "Shape" else "Построчное заполнение областей.")
     plan.notes.append("Цвета из изображения через HSV; проверьте TEST DRAW. Непрозрачность 100%."
                       if options.palette is None and options.color_clicks > 1 else
                       "Ручная палитра: только подтверждённые RGB и размеры кисти; непрозрачность 100%.")
