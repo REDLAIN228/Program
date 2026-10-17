@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDia
 from app.ai import OpenAIImageProvider, ProviderSettings, read_key, save_key
 from app.automation import DrawingExecutor, SafetyError
 from app.imaging import open_image
+from app.game_profile import selection_clicks
 from app.models import Plan, Rect, Stroke, Timing, estimate_plan
 from app.planner import PlanOptions, build_plan, render_plan
 from app.storage import Store
@@ -150,7 +151,8 @@ class MainWindow(QMainWindow):
         self.speed.addItems(["Safe", "Normal", "Fast"])
         self.speed.setCurrentText("Normal")
         self.limit = QComboBox()
-        self.limit.addItems(["Auto · 165 s", "60 seconds", "120 seconds", "165 seconds", "Unlimited"])
+        self.limit.addItems(["Auto · 165 s", "60 seconds", "120 seconds", "165 seconds", "Unlimited",
+                             "240 seconds", "300 seconds"])
         options.addWidget(self.quality)
         options.addWidget(self.speed)
         options.addWidget(self.limit)
@@ -549,7 +551,8 @@ class MainWindow(QMainWindow):
             dialog = CalibrationDialog(image, state, self)
             if dialog.exec():
                 self._save_profile(dialog.result_profile)
-                self.log.setText("Калибровка сохранена. Выполните TEST DRAW на свободном месте холста.")
+                self.log.setText("Калибровка сохранена. Выполните TEST DRAW на свободном месте холста. "
+                                 "После проверки: очистите холст → CAPTURE → PREVIEW → RUN.")
             self.set_state("IDLE")
         except Exception as exc:
             self._pending_capture = False
@@ -589,7 +592,8 @@ class MainWindow(QMainWindow):
             self.show()
             self.icon.show()
             self._pending_capture = False
-            self.log.setText("Персонаж захвачен. GENERATE отправит его в AI; PREVIEW обработает локально без AI.")
+            self.log.setText("Персонаж захвачен. Для копии с экрана нажмите PREVIEW. "
+                             "Во вкладке ORIGINAL проверьте, не попали ли соседи; область меняется в CALIBRATE.")
         except Exception as exc:
             self._pending_capture = False
             self.error(str(exc))
@@ -661,7 +665,7 @@ class MainWindow(QMainWindow):
             self.error(str(exc))
 
     def time_limit(self):
-        return [165, 60, 120, 165, None][self.limit.currentIndex()]
+        return [165, 60, 120, 165, None, 240, 300][self.limit.currentIndex()]
 
     def make_plan(self):
         if not self._require_free():
@@ -676,9 +680,10 @@ class MainWindow(QMainWindow):
         p = self.profile
         options = PlanOptions((p.canvas.width, p.canvas.height) if p else (512, 512),
                               self.quality.currentText(), self.style.currentText(), self.speed.currentText(),
-                              self.time_limit(), [s.rgb for s in p.swatches] if p else None,
+                              self.time_limit(), [s.rgb for s in p.swatches] if p and not p.color_wheel else None,
                               tuple(b.pixels for b in p.brushes) if p else (3, 9, 18),
-                              self.crop_fit.isChecked(), self.remove_bg.isChecked())
+                              self.crop_fit.isChecked(), self.remove_bg.isChecked(),
+                              *(selection_clicks(p) if p else (1, 1)))
         original = self.original.copy()
         self.set_state("PROCESSING")
         def process(job):
@@ -742,6 +747,10 @@ class MainWindow(QMainWindow):
             if not self.plan.strokes:
                 raise ValueError("План пуст: изображение белое или все детали меньше доступной кисти")
             limit = self.time_limit()
+            color_clicks, brush_clicks = selection_clicks(self.profile)
+            self.plan.color_clicks, self.plan.brush_clicks = color_clicks, brush_clicks
+            self.plan.estimated_seconds = estimate_plan(self.plan.strokes, self.plan.canvas_size, self.plan.timing,
+                                                        color_clicks, brush_clicks)
             if limit is not None and self.plan.estimated_seconds > limit:
                 raise ValueError("Оценка времени превышает лимит. Увеличьте TIME LIMIT или упростите изображение.")
             if self._get_target() is None:
@@ -762,15 +771,26 @@ class MainWindow(QMainWindow):
                 raise SafetyError("Нужна рабочая аварийная остановка F9")
             if self._get_target() is None:
                 return
-            if QMessageBox.question(self, "TEST DRAW · реальный ввод", "Программа нарисует короткую линию в центре холста. "
+            description = ("Программа нарисует три полоски: чёрную, красную и зелёную, сверху вниз. "
+                           if self.profile.color_wheel else "Программа нарисует короткую линию в центре холста. ")
+            if QMessageBox.question(self, "TEST DRAW · реальный ввод", description +
                                     "Выставьте непрозрачность 100%, откройте калиброванную палитру. Продолжить?") != QMessageBox.StandardButton.Yes:
                 return
             p = self.profile
-            color = min(p.swatches, key=lambda s: sum(s.rgb)).rgb
-            stroke = Stroke(((.42, .50), (.58, .50)), color, min(b.pixels for b in p.brushes))
+            if p.color_wheel:
+                widths = sorted(b.pixels for b in p.brushes)
+                thin, thick = widths[0], widths[min(1, len(widths)-1)]
+                strokes = [Stroke(((.42, y), (.58, y)), color, width)
+                           for y, color, width in [(.47, (0, 0, 0), thin),
+                                                   (.50, (255, 0, 0), thick), (.53, (0, 255, 0), thin)]]
+            else:
+                color = min(p.swatches, key=lambda s: sum(s.rgb)).rgb
+                strokes = [Stroke(((.42, .50), (.58, .50)), color, min(b.pixels for b in p.brushes))]
             timing = Timing.preset("Safe")
-            plan = Plan((p.canvas.width, p.canvas.height), [stroke], timing,
-                        estimate_plan([stroke], (p.canvas.width, p.canvas.height), timing), "test", [color])
+            clicks = selection_clicks(p)
+            plan = Plan((p.canvas.width, p.canvas.height), strokes, timing,
+                        estimate_plan(strokes, (p.canvas.width, p.canvas.height), timing, *clicks), "test",
+                        [s.color for s in strokes], color_clicks=clicks[0], brush_clicks=clicks[1])
             executor = DrawingExecutor(self._backend(), p)
             self._begin_draw(executor, plan, None, True)
         except Exception as exc:
@@ -829,14 +849,15 @@ class MainWindow(QMainWindow):
                 self.profile.verified = False
                 self.store.save_profile(self.profile)
                 self.error("На тестовом участке не обнаружено изменения. Проверьте кисть, цвет, палитру, "
-                           "координаты и поддержку обычного ввода. Если линия уже была, очистите участок.")
+                           "координаты и поддержку обычного ввода. Если тестовые штрихи уже были, очистите участок.")
                 return
-            answer = QMessageBox.question(self, "Проверка результата", f"Изменено пикселей: {changed}. "
-                    "В центре холста появилась одна короткая линия нужного цвета и толщины? "
+            expected = ("Появились три полоски сверху вниз: чёрная, красная, зелёная? Красная толще остальных? "
+                        if self.profile.color_wheel else "В центре холста появилась короткая линия нужного цвета и толщины? ")
+            answer = QMessageBox.question(self, "Проверка результата", f"Изменено пикселей: {changed}. " + expected +
                     "Подтвердите визуально; автоматическое сравнение не проверяет все цвета и размеры.")
             self.profile.verified = answer == QMessageBox.StandardButton.Yes
             self.store.save_profile(self.profile)
-            self.log.setText("TEST DRAW подтверждён. Проверьте остальные образцы при калибровке; очистите холст перед RUN."
+            self.log.setText("TEST DRAW подтверждён. Очистите холст. Для персонажа: CAPTURE → PREVIEW → RUN."
                              if self.profile.verified else "Результат не подтверждён. Повторите CALIBRATE.")
         except Exception as exc:
             self.error(str(exc))

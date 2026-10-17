@@ -111,7 +111,9 @@ class DrawingExecutor:
         colors = {s.rgb for s in self.profile.swatches}
         widths = {b.pixels for b in self.profile.brushes}
         for stroke in plan.strokes:
-            if stroke.color not in colors or stroke.width not in widths or stroke.opacity != 1:
+            if ((not self.profile.color_wheel and stroke.color not in colors)
+                    or len(stroke.color) != 3 or any(not 0 <= c <= 255 for c in stroke.color)
+                    or stroke.width not in widths or stroke.opacity != 1):
                 raise SafetyError("План содержит некалиброванные цвета, размеры или прозрачность")
             if not stroke.points:
                 raise SafetyError("Пустой штрих")
@@ -127,8 +129,9 @@ class DrawingExecutor:
         started = time.monotonic()
         pause_seconds = 0.
         try:
-            for anchor in self.profile.anchors:
-                self._check_anchor(anchor)
+            if not self.profile.color_tab:
+                for anchor in self.profile.anchors:
+                    self._check_anchor(anchor)
             state("DRAWING")
             while self.completed < len(plan.strokes):
                 if self.pause_event.is_set() or self._interrupted.is_set():
@@ -172,11 +175,20 @@ class DrawingExecutor:
             self._click(self.profile.brush_tool, plan)
             self._tool_selected = True
         if self._color != stroke.color:
-            swatch = next(s for s in self.profile.swatches if s.rgb == stroke.color)
-            for anchor in self.profile.anchors:
-                if anchor.point == swatch.point:
-                    self._check_anchor(anchor)
-            self._click(swatch.point, plan)
+            if self.profile.color_tab:
+                self._click(self.profile.color_tab, plan)
+            wheel = self.profile.color_wheel
+            if wheel:
+                if wheel.mode_button:
+                    self._click(wheel.mode_button, plan)
+                for point in wheel.points(stroke.color):
+                    self._click(point, plan)
+            else:
+                swatch = next(s for s in self.profile.swatches if s.rgb == stroke.color)
+                for anchor in self.profile.anchors:
+                    if anchor.point == swatch.point:
+                        self._check_anchor(anchor)
+                self._click(swatch.point, plan)
             if self.profile.color_indicator:
                 self._guard()
                 assert self._session
@@ -186,6 +198,8 @@ class DrawingExecutor:
                     raise SafetyError("Индикатор цвета не совпал с палитрой. Проверьте калибровку.")
             self._color = stroke.color
         if self._width != stroke.width:
+            if self.profile.size_tab:
+                self._click(self.profile.size_tab, plan)
             brush = next(b for b in self.profile.brushes if b.pixels == stroke.width)
             self._click(brush.point, plan)
             self._width = stroke.width

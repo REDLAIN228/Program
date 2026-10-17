@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import colorsys
 import math
 from typing import Callable
 
@@ -41,6 +42,27 @@ class Brush:
     point: tuple[int, int]
 
 
+@dataclass(frozen=True)
+class ColorWheel:
+    center: tuple[int, int]
+    red: tuple[int, int]  # A point halfway across the hue ring at hue zero.
+    square: Rect  # Saturation increases rightward; value decreases downward.
+    value_reset: tuple[int, int] | None = None
+    mode_button: tuple[int, int] | None = None
+
+    def points(self, rgb: RGB) -> list[tuple[int, int]]:
+        if len(rgb) != 3 or any(not 0 <= c <= 255 for c in rgb):
+            raise ValueError("Некорректный RGB")
+        hue, saturation, value = colorsys.rgb_to_hsv(*(c / 255 for c in rgb))
+        angle = hue * 2 * math.pi
+        dx, dy = self.red[0] - self.center[0], self.red[1] - self.center[1]
+        ring = (round(self.center[0] + dx * math.cos(angle) - dy * math.sin(angle)),
+                round(self.center[1] + dx * math.sin(angle) + dy * math.cos(angle)))
+        square = (round(self.square.x + saturation * (self.square.width - 1)),
+                  round(self.square.y + (1 - value) * (self.square.height - 1)))
+        return [ring] + ([self.value_reset] if self.value_reset else []) + [square]
+
+
 @dataclass
 class Calibration:
     name: str
@@ -59,6 +81,9 @@ class Calibration:
     color_tolerance: int = 45
     # Stable pixels on permanent swatches detect palette/layout changes at fixed window size.
     anchors: list[Swatch] = field(default_factory=list)
+    color_wheel: ColorWheel | None = None
+    color_tab: tuple[int, int] | None = None
+    size_tab: tuple[int, int] | None = None
 
     def validate(self) -> None:
         w, h = self.client_size
@@ -66,14 +91,31 @@ class Calibration:
             raise ValueError("Некорректный размер окна или DPI")
         if self.canvas.width < 16 or self.canvas.height < 16:
             raise ValueError("Выделите холст размером хотя бы 16×16")
-        if not self.swatches or not self.brushes:
+        if (not self.swatches and not self.color_wheel) or not self.brushes:
             raise ValueError("Нужен хотя бы один цвет и один размер кисти")
         for rect in [self.canvas, self.character]:
             if rect and (rect.width < 1 or rect.height < 1 or rect.x < 0 or rect.y < 0
                          or rect.x + rect.width > w or rect.y + rect.height > h):
                 raise ValueError("Область выходит за границы игрового окна")
         controls = [s.point for s in self.swatches + self.anchors] + [b.point for b in self.brushes]
-        controls += [p for p in [self.brush_tool, self.color_indicator] if p is not None]
+        controls += [p for p in [self.brush_tool, self.color_indicator, self.color_tab, self.size_tab] if p is not None]
+        if self.color_wheel:
+            wheel = self.color_wheel
+            radius = math.dist(wheel.center, wheel.red)
+            if radius < 8 or wheel.square.width < 8 or wheel.square.height < 8:
+                raise ValueError("Некорректная геометрия цветового круга")
+            cx, cy = wheel.center
+            for left, top, right, bottom in [
+                    (cx-radius, cy-radius, cx+radius, cy+radius),
+                    (wheel.square.x, wheel.square.y, wheel.square.x+wheel.square.width-1,
+                     wheel.square.y+wheel.square.height-1)]:
+                if (left < self.canvas.x+self.canvas.width and right >= self.canvas.x
+                        and top < self.canvas.y+self.canvas.height and bottom >= self.canvas.y):
+                    raise ValueError("Цветовой круг и квадрат оттенков не должны пересекать холст")
+            controls += [(cx-radius, cy-radius), (cx+radius, cy+radius), wheel.center, wheel.red,
+                         (wheel.square.x, wheel.square.y),
+                         (wheel.square.x + wheel.square.width-1, wheel.square.y + wheel.square.height-1)]
+            controls += [p for p in [wheel.value_reset, wheel.mode_button] if p is not None]
         if any(not Rect(0, 0, w, h).contains(*p) for p in controls):
             raise ValueError("Элемент управления вне окна")
         if any(self.canvas.contains(*p) for p in controls):
@@ -100,6 +142,13 @@ class Calibration:
             color_indicator=tuple(d["color_indicator"]) if d.get("color_indicator") else None,
             color_tolerance=d.get("color_tolerance", 45),
             anchors=[Swatch(tuple(s["rgb"]), tuple(s["point"])) for s in d.get("anchors", [])],
+            color_wheel=(ColorWheel(tuple(d["color_wheel"]["center"]), tuple(d["color_wheel"]["red"]),
+                                    Rect(**d["color_wheel"]["square"]),
+                                    tuple(d["color_wheel"]["value_reset"]) if d["color_wheel"].get("value_reset") else None,
+                                    tuple(d["color_wheel"]["mode_button"]) if d["color_wheel"].get("mode_button") else None)
+                         if d.get("color_wheel") else None),
+            color_tab=tuple(d["color_tab"]) if d.get("color_tab") else None,
+            size_tab=tuple(d["size_tab"]) if d.get("size_tab") else None,
         )
         p.validate()
         return p
@@ -150,6 +199,8 @@ class Plan:
     palette: list[RGB]
     notes: list[str] = field(default_factory=list)
     schema: int = 1
+    color_clicks: int = 1
+    brush_clicks: int = 1
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -179,19 +230,24 @@ class Plan:
         timing = Timing(**d["timing"])
         if any(not math.isfinite(v) or v <= 0 for v in asdict(timing).values()):
             raise ValueError("Некорректные интервалы")
-        estimate = estimate_plan(strokes, size, timing)
+        color_clicks, brush_clicks = d.get("color_clicks", 1), d.get("brush_clicks", 1)
+        if any(type(n) is not int or not 1 <= n <= 12 for n in [color_clicks, brush_clicks]):
+            raise ValueError("Некорректное число нажатий элементов управления")
+        estimate = estimate_plan(strokes, size, timing, color_clicks, brush_clicks)
         return cls(size, strokes, timing, estimate, d["source_hash"],
-                   [tuple(c) for c in d["palette"]], d.get("notes", []))
+                   [tuple(c) for c in d["palette"]], d.get("notes", []),
+                   color_clicks=color_clicks, brush_clicks=brush_clicks)
 
 
-def estimate_plan(strokes: list[Stroke], size: tuple[int, int], timing: Timing) -> float:
+def estimate_plan(strokes: list[Stroke], size: tuple[int, int], timing: Timing,
+                  color_clicks: int = 1, brush_clicks: int = 1) -> float:
     total = 0.0
     prev_color = prev_width = None
     for s in strokes:
         total += s.seconds(size, timing)
         if s.color != prev_color:
-            total += timing.settle + 3 * timing.event
+            total += color_clicks * (timing.settle + 3 * timing.event)
         if s.width != prev_width:
-            total += timing.settle + 3 * timing.event
+            total += brush_clicks * (timing.settle + 3 * timing.event)
         prev_color, prev_width = s.color, s.width
     return total * 1.15  # Scheduling and color-verification reserve; still only an estimate.

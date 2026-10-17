@@ -24,6 +24,8 @@ class PlanOptions:
     brush_widths: tuple[int, ...] = (3, 9, 18)
     crop: bool = False
     remove_background: bool = False
+    color_clicks: int = 1
+    brush_clicks: int = 1
 
 
 def rdp(points: np.ndarray, epsilon: float) -> np.ndarray:
@@ -214,9 +216,10 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
             progress((attempt + (idx + 1) / len(color_ids)) / 4, "Планирование штрихов")
         # Fill layers first; short vector contours last. Group by color/width within layers.
         strokes.sort(key=lambda s: (s.priority, s.color, -s.width))
-        estimate = estimate_plan(strokes, options.canvas_size, timing)
+        estimate = estimate_plan(strokes, options.canvas_size, timing, options.color_clicks, options.brush_clicks)
         plan = Plan(options.canvas_size, strokes, timing, estimate, source_hash,
-                    list(dict.fromkeys(s.color for s in strokes)))
+                    list(dict.fromkeys(s.color for s in strokes)),
+                    color_clicks=options.color_clicks, brush_clicks=options.brush_clicks)
         if best is None or estimate < best[0].estimated_seconds:
             best = plan, Image.fromarray(np.array(palette, np.uint8)[labels]), attempt
         if baseline is None:
@@ -234,7 +237,9 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         best = baseline
     plan, prepared, selected_attempt = best
     plan.notes.append("Локальная обработка; это не AI-генерация. Начинайте с пустого белого холста.")
-    plan.notes.append("Ручная палитра: только подтверждённые RGB и размеры кисти; непрозрачность 100%.")
+    plan.notes.append("Цвета из изображения через HSV; проверьте TEST DRAW. Непрозрачность 100%."
+                      if options.palette is None and options.color_clicks > 1 else
+                      "Ручная палитра: только подтверждённые RGB и размеры кисти; непрозрачность 100%.")
     if options.time_limit and plan.estimated_seconds > options.time_limit:
         plan.notes.append(f"План требует около {plan.estimated_seconds:.0f} с и превышает лимит "
                           f"{options.time_limit:.0f} с. Увеличьте лимит или упростите изображение.")

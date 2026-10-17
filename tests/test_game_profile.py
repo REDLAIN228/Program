@@ -1,0 +1,125 @@
+from dataclasses import replace
+
+import pytest
+from PIL import Image
+
+from app.automation import DrawingExecutor, SafetyError, WindowState
+from app.game_profile import screenshot_profile, selection_clicks
+from app.models import Calibration, ColorWheel, Plan, Rect, Stroke, Timing, estimate_plan
+from app.planner import PlanOptions, build_plan
+from app.ui.calibration import CalibrationDialog
+
+
+def game_state():
+    return WindowState(123, "Roblox", "Game", "RobloxPlayerBeta.exe", Rect(-1400, 20, 1366, 768), 120)
+
+
+def test_hue_ring_and_sv_square_use_known_primary_and_gray_positions():
+    wheel = ColorWheel((100, 100), (100, 50), Rect(200, 200, 101, 101))
+    assert wheel.points((255, 0, 0)) == [(100, 50), (300, 200)]
+    assert wheel.points((0, 255, 0)) == [(143, 125), (300, 200)]
+    assert wheel.points((0, 0, 255)) == [(57, 125), (300, 200)]
+    assert wheel.points((128, 128, 128))[-1] == (200, 250)
+    assert wheel.points((0, 0, 0))[-1] == (200, 300)
+    assert wheel.points((255, 255, 255))[-1] == (200, 200)
+
+
+def test_game_profile_roundtrip_resolution_and_unverified_status():
+    profile = screenshot_profile(game_state())
+    assert not profile.verified
+    assert Calibration.from_dict(profile.to_dict()).to_dict() == profile.to_dict()
+    assert selection_clicks(profile) == (5, 2)
+    with pytest.raises(ValueError, match="1366"):
+        screenshot_profile(replace(game_state(), client=Rect(0, 0, 1920, 1080)))
+    with pytest.raises(ValueError, match="Roblox"):
+        screenshot_profile(replace(game_state(), process="other.exe"))
+    with pytest.raises(ValueError):
+        replace(profile, color_wheel=replace(profile.color_wheel, center=(1340, 400))).validate()
+
+
+class TabbedBackend:
+    """A target that refuses interaction with controls on a hidden tab."""
+    def __init__(self, profile):
+        self.profile = profile
+        self.tab = "size"
+        self.point = (0, 0)
+        self.pressed = False
+        self.clicks = []
+        self.drawing = []
+
+    def snapshot(self): return game_state()
+    def is_foreground(self): return True
+    def point_belongs_to_target(self, x, y): return self.snapshot().client.contains(x, y)
+    def sample(self, x, y): return (0, 0, 0)
+
+    def move(self, x, y):
+        origin = self.snapshot().client
+        self.point = (x-origin.x, y-origin.y)
+
+    def down(self):
+        self.pressed = True
+        point, p = self.point, self.profile
+        if p.canvas.contains(*point):
+            self.drawing.append((self.rgb, self.width))
+        elif point == p.color_tab:
+            self.tab = "color"
+        elif point == p.size_tab:
+            self.tab = "size"
+        elif point == p.brush_tool:
+            pass
+        elif point in {b.point for b in p.brushes}:
+            assert self.tab == "size", "Clicked a brush on the color tab"
+            self.width = next(b.pixels for b in p.brushes if b.point == point)
+        else:
+            assert self.tab == "color", "Clicked the color wheel on the size tab"
+            # Expected square extremes for black, red, and green; independent of HSV math.
+            if point == (606, 246): self.rgb = (0, 0, 0)
+            elif point == (680, 171):
+                self.rgb = (255, 0, 0) if self.last_hue == (643, 135) else (0, 255, 0)
+            elif point not in {(573, 317), (746, 132)}:
+                self.last_hue = point
+        self.clicks.append(point)
+
+    def up(self): self.pressed = False
+
+
+def test_executor_switches_hidden_tabs_and_uses_adaptive_colors():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = TabbedBackend(profile)
+    strokes = [Stroke(((.2, .4), (.3, .4)), color, width)
+               for color, width in [((0, 0, 0), 2), ((255, 0, 0), 6), ((0, 255, 0), 2)]]
+    plan = Plan((555, 555), strokes, Timing(.00001, .00001, 1000000, 100), 1, "test", [])
+    executor = DrawingExecutor(backend, profile)
+    assert executor.run(plan) == "finished"
+    assert backend.drawing == [((0, 0, 0), 2), ((255, 0, 0), 6), ((0, 255, 0), 2)]
+    assert backend.clicks.count(profile.color_tab) == 3
+    assert backend.clicks.count(profile.size_tab) == 3
+    assert not backend.pressed
+    profile.verified = False
+    with pytest.raises(SafetyError, match="TEST DRAW"):
+        DrawingExecutor(backend, profile).run(plan)
+
+
+def test_wheel_plan_accounts_for_tab_and_color_selection_cost():
+    source = Image.new("RGB", (40, 40), (100, 60, 35))
+    plan, _ = build_plan(source, PlanOptions((100, 100), time_limit=None,
+                                           color_clicks=5, brush_clicks=2))
+    assert (100, 60, 35) in plan.palette
+    assert plan.estimated_seconds == estimate_plan(plan.strokes, plan.canvas_size, plan.timing, 5, 2)
+    assert plan.estimated_seconds > estimate_plan(plan.strokes, plan.canvas_size, plan.timing)
+    assert Plan.from_dict(plan.to_dict()).estimated_seconds == plan.estimated_seconds
+
+
+def test_calibration_applies_and_undoes_game_preset(qapp):
+    dialog = CalibrationDialog(Image.new("RGB", (1366, 768)), game_state())
+    dialog.apply_game_preset()
+    assert dialog.save_button.isEnabled()
+    assert dialog.color_wheel is not None
+    dialog.save()
+    assert dialog.result_profile.target_process == "RobloxPlayerBeta.exe"
+    assert not dialog.result_profile.verified
+    dialog.undo()
+    assert dialog.color_wheel is None and dialog.canvas is None
+    assert not dialog.save_button.isEnabled()
+    dialog.close()
