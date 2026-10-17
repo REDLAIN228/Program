@@ -17,16 +17,17 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Headless tests (does not validate native Win32 input)
+        shell: cmd
         env:
           QT_QPA_PLATFORM: offscreen
           PYTHONUTF8: '1'
         run: |
-          New-Item -ItemType Directory -Force artifacts | Out-Null
+          if not exist artifacts mkdir artifacts
           python -m pytest -q --junitxml=artifacts/pytest-results.xml > artifacts/pytest-output.txt 2>&1
-          $testExit = $LASTEXITCODE
-          Get-Content artifacts/pytest-output.txt
-          python tools/ci_summary.py artifacts/pytest-output.txt "$env:GITHUB_STEP_SUMMARY"
-          exit $testExit
+          exit /b %errorlevel%
+      - name: Publish test diagnostics
+        if: always()
+        run: python tools/ci_summary.py artifacts/pytest-output.txt "$env:GITHUB_STEP_SUMMARY"
       - name: Build Windows desktop executable
         run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name AnimeDrawer --icon assets/anime-drawer.ico --collect-all mss --collect-all keyring --hidden-import keyring.backends.Windows main.py
       - uses: actions/upload-artifact@v4
