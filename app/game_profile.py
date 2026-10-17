@@ -15,7 +15,10 @@ def restrict_game_profile(profile: Calibration) -> bool:
         return False
     if profile.client_size != (1366, 768) or "roblox" not in profile.target_process.casefold():
         return False
-    changed = profile.brush_slider is None or profile.size_tab is not None or profile.forbidden != PAID_AREAS
+    needs_fine_brush = (profile.brush_slider is None or profile.brush_slider.minimum == 1) and not any(
+        b.pixels == 1 for b in profile.brushes)
+    changed = (profile.brush_slider is None or profile.size_tab is not None
+               or profile.forbidden != PAID_AREAS or needs_fine_brush)
     if profile.brush_slider is None:
         profile.brush_slider = BrushSlider((590, 404), (720, 404), 1, 100)
     profile.size_tab = None
@@ -23,6 +26,8 @@ def restrict_game_profile(profile: Calibration) -> bool:
     profile.adapter = "roblox-free-slider-v1"
     if changed:
         profile.brushes = [Brush(b.pixels, profile.brush_slider.start) for b in profile.brushes]
+        if needs_fine_brush:
+            profile.brushes.insert(0, Brush(1, profile.brush_slider.start))
         profile.verified = False
     return changed
 
@@ -36,7 +41,7 @@ def screenshot_profile(state: WindowState) -> Calibration:
     profile = Calibration(
         PROFILE_NAME, state.window_class, state.process, (1366, 768), state.dpi,
         Rect(785, 114, 555, 555), [],
-        [Brush(n, (590, 404)) for n in (2, 6, 16, 32, 64)],
+        [Brush(n, (590, 404)) for n in (1, 2, 6, 16, 32, 64)],
         brush_tool=(868, 720), character=Rect(145, 250, 340, 500),
         color_wheel=ColorWheel((644, 209), (643, 135), Rect(606, 171, 75, 76),
                                value_reset=(746, 132), mode_button=(573, 317)),

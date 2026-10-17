@@ -3,8 +3,10 @@ import math
 
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw
 
-from app.models import Stroke
+from app.models import Rect, Stroke
+from app.raster import draw_stroke
 
 
 def shape_strokes(mask, color, widths, size, scale, cancel):
@@ -80,3 +82,76 @@ def shape_strokes(mask, color, widths, size, scale, cancel):
         for contour in sorted(boundary, key=cv2.contourArea, reverse=True):
             stroke(contour, min(widths), 2)
     return output
+
+
+def complete_coverage(strokes, labels, palette, widths, size, cancel):
+    """Repair actual emitted brush marks, including tiny islands and thin gaps.
+
+    Follow residual shapes rather than scanning global rows. Never invent an
+    uncalibrated brush size or draw outside the executor's inset canvas.
+    """
+    factor = min(1., 1920/max(size))
+    vw, vh = max(1, round(size[0]*factor)), max(1, round(size[1]*factor))
+    target = cv2.resize(labels, (vw, vh), interpolation=cv2.INTER_NEAREST)
+    raster = Image.new("L", (vw, vh), 255)
+    draw = ImageDraw.Draw(raster)
+    ids = {}
+    for i, color in enumerate(palette):
+        ids.setdefault(tuple(color), i)
+    for i, stroke in enumerate(strokes):
+        if i % 128 == 0 and cancel.is_set():
+            raise InterruptedError("Обработка отменена")
+        draw_stroke(draw, stroke, size, (vw, vh), ids[stroke.color])
+    brush = min(widths)
+    margin = brush/2+1
+    sx, sy = vw/size[0], vh/size[1]
+    frame = Rect(0, 0, *size)
+    lo = frame.map((0, 0), margin)
+    hi = frame.map((1, 1), margin)
+    x0, y0 = round(lo[0]*sx), round(lo[1]*sy)
+    x1, y1 = round(hi[0]*sx), round(hi[1]*sy)
+    repairs = []
+    for color_id in np.unique(target):
+        if cancel.is_set():
+            raise InterruptedError("Обработка отменена")
+        color = tuple(palette[color_id])
+        if min(color) >= 248:
+            continue
+        region = (target == color_id).astype(np.uint8)*255
+        missing = region & (np.asarray(raster) != color_id).astype(np.uint8)*255
+        if not np.any(missing):
+            continue
+        if brush == 1 and factor == 1:
+            centers = missing
+        else:
+            radius = max(1, math.ceil(brush*min(sx, sy)/2))
+            footprint = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*radius+1, 2*radius+1))
+            centers = cv2.erode(region, footprint, borderType=cv2.BORDER_CONSTANT, borderValue=0)
+            centers &= cv2.dilate(missing, footprint)
+        centers[:y0] = 0
+        centers[y1+1:] = 0
+        centers[:, :x0] = 0
+        centers[:, x1+1:] = 0
+        while np.any(centers):
+            if cancel.is_set():
+                raise InterruptedError("Обработка отменена")
+            contours, _ = cv2.findContours(centers, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            for contour in contours:
+                points = contour.reshape(-1, 2)
+                points = np.vstack([points, points[0]])
+                normalized = tuple((float(np.clip((x/sx-margin)/(size[0]-1-2*margin), 0, 1)),
+                                    float(np.clip((y/sy-margin)/(size[1]-1-2*margin), 0, 1)))
+                                   for x, y in points)
+                stroke = Stroke(normalized, color, brush, priority=3)
+                repairs.append(stroke)
+                draw_stroke(draw, stroke, size, (vw, vh), int(color_id))
+                if len(strokes)+len(repairs) > 100_000:
+                    raise ValueError("Слишком много мелких деталей для 100 000 штрихов. Уменьшите кадр или качество.")
+            centers = cv2.erode(centers, np.ones((3, 3), np.uint8), borderType=cv2.BORDER_CONSTANT, borderValue=0)
+    foreground = np.min(np.asarray(palette, np.uint8)[target], axis=2) < 248
+    uncovered = foreground & (np.asarray(raster) == 255)
+    uncovered[:y0] = False
+    uncovered[y1+1:] = False
+    uncovered[:, :x0] = False
+    uncovered[:, x1+1:] = False
+    return repairs, int(uncovered.sum())

@@ -11,7 +11,8 @@ from PIL import Image, ImageDraw
 
 from app.imaging import prepare
 from app.models import Plan, Progress, RGB, Stroke, Timing, estimate_plan
-from app.painter import shape_strokes
+from app.painter import complete_coverage, shape_strokes
+from app.raster import draw_stroke
 
 
 @dataclass
@@ -38,9 +39,15 @@ def _quantize(image: Image.Image, palette: list[RGB] | None, colors: int) -> tup
     if palette:
         palette = list(dict.fromkeys(tuple(c) for c in palette))
         values = np.array(palette, dtype=np.float32)
-        a = np.asarray(image, dtype=np.float32)
-        # Small bounded working grid; Euclidean RGB nearest calibrated swatch.
-        labels = np.argmin(((a[:, :, None] - values) ** 2).sum(axis=3), axis=2).astype(np.uint8)
+        a = np.asarray(image, dtype=np.float32).reshape(-1, 3)
+        # Bounded memory even for 1920x1080 and 64 calibrated colors.
+        labels = np.empty(len(a), dtype=np.uint8)
+        norms = (values*values).sum(axis=1)
+        for start in range(0, len(a), 16384):
+            chunk = a[start:start+16384]
+            distance = (chunk*chunk).sum(axis=1)[:, None]+norms[None, :]-2*(chunk@values.T)
+            labels[start:start+len(chunk)] = np.argmin(distance, axis=1)
+        labels = labels.reshape(image.height, image.width)
         if len(palette) > colors:
             counts = np.bincount(labels.ravel(), minlength=len(palette))
             ranked = np.argsort(-counts).tolist()
@@ -104,20 +111,8 @@ def render_plan(plan: Plan, size: tuple[int, int] | None = None) -> Image.Image:
     size = size or plan.canvas_size
     image = Image.new("RGB", size, "white")
     draw = ImageDraw.Draw(image)
-    rect_w, rect_h = plan.canvas_size
-    scale = min(size[0] / rect_w, size[1] / rect_h)
-    # Execution uses the same inset transform to keep the entire brush on canvas.
     for stroke in plan.strokes:
-        margin = stroke.width / 2 + 1
-        pts = [(round((margin + x * (rect_w - 1 - 2 * margin)) * size[0] / rect_w),
-                round((margin + y * (rect_h - 1 - 2 * margin)) * size[1] / rect_h))
-               for x, y in stroke.points]
-        width = max(1, round(stroke.width * scale))
-        if len(pts) > 1:
-            draw.line(pts, fill=stroke.color, width=width, joint="curve")
-        radius = max(.5, width / 2)
-        for x, y in [pts[0], pts[-1]]:
-            draw.ellipse((x-radius, y-radius, x+radius, y+radius), fill=stroke.color)
+        draw_stroke(draw, stroke, plan.canvas_size, size, stroke.color)
     return image
 
 
@@ -139,19 +134,20 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         raise ValueError("Неизвестный способ рисования")
     timing = Timing.preset(options.speed)
     grid, colors = {"Fast": (160, 8), "Balanced": (256, 12),
-                    "Detailed": (320, 20), "Ultra Detailed": (384, 28)}[options.quality]
+                    "Detailed": (320, 20), "Ultra Detailed": (768, 64), "Full HD": (1920, 128)}[options.quality]
+    full_hd = options.quality == "Full HD"
     minimum_colors = min(8, len(options.palette)) if options.palette else 8
     source_hash = hashlib.sha256(image.convert("RGB").tobytes() + str(image.size).encode()).hexdigest()
     best = None
     baseline = None
-    for attempt in range(4):
+    for attempt in range(1 if full_hd else 4):
         if cancel.is_set():
             raise InterruptedError("Обработка отменена")
         ratio = min(1, grid / max(cw, ch))
         w, h = max(16, round(cw * ratio)), max(16, round(ch * ratio))
         progress(attempt / 4, f"Сегментация: {w}×{h}")
         prepared = prepare(image, (w, h), options.crop, options.style, options.remove_background)
-        if attempt or options.stroke_style == "Shape":
+        if not full_hd and (attempt or options.stroke_style == "Shape"):
             prepared = Image.fromarray(cv2.medianBlur(np.asarray(prepared), 3))
         labels, palette = _quantize(prepared, options.palette, colors)
         # Simplify color segmentation at a coarse resolution, but never space fill
@@ -159,9 +155,10 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         # together would create white stripes/dots in the budget-reduced result.
         fill_ratio = min(1., max(ratio, 1. / min(options.brush_widths)))
         fill_w, fill_h = max(16, round(cw * fill_ratio)), max(16, round(ch * fill_ratio))
-        if max(fill_w, fill_h) > 1024:
+        grid_limit = 1920 if full_hd else 1024
+        if max(fill_w, fill_h) > grid_limit:
             raise ValueError("Для такого большого холста добавьте более широкую минимальную кисть "
-                             "или уменьшите окно: рабочая сетка ограничена 1024 px для CPU.")
+                             f"или уменьшите окно: рабочая сетка ограничена {grid_limit} px для CPU.")
         labels = cv2.resize(labels, (fill_w, fill_h), interpolation=cv2.INTER_NEAREST)
         w, h = fill_w, fill_h
         ratio_x, ratio_y = w / cw, h / ch
@@ -179,7 +176,7 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
             mask = (labels == color_id).astype(np.uint8) * 255
             if options.stroke_style == "Shape":
                 strokes.extend(shape_strokes(mask, color, widths, options.canvas_size, (ratio_x, ratio_y), cancel))
-                progress((attempt + (idx + 1) / len(color_ids)) / 4, "Штрихи по форме областей")
+                progress((attempt + .9*(idx + 1) / len(color_ids)) / 4, "Штрихи по форме областей")
                 continue
             covered = np.zeros((h, w), np.uint8)
             for brush in widths:
@@ -225,17 +222,24 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
                                 float(min(1., max(0., (y / ratio_y - margin) / (ch - 1 - 2 * margin)))))
                                for x, y in line)
                 strokes.append(Stroke(points, color, brush, priority=1))
-            progress((attempt + (idx + 1) / len(color_ids)) / 4, "Планирование штрихов")
+            progress((attempt + .9*(idx + 1) / len(color_ids)) / 4, "Планирование штрихов")
         # Fill layers first; short vector contours last. Group by color/width within layers.
         if options.stroke_style == "Shape":
             # Preserve component order inside each stage instead of scanning the whole image by rows.
             strokes.sort(key=lambda s: s.priority)
         else:
             strokes.sort(key=lambda s: (s.priority, s.color, -s.width))
+        progress((attempt+.95)/4 if not full_hd else .95, "Проверка реального покрытия и заполнение пробелов")
+        if len(strokes) > 100_000:
+            raise ValueError("План превышает 100 000 штрихов. Уменьшите кадр или качество.")
+        repairs, uncovered = complete_coverage(strokes, labels, palette, widths, options.canvas_size, cancel)
+        strokes.extend(repairs)
         estimate = estimate_plan(strokes, options.canvas_size, timing, options.color_clicks, options.brush_clicks)
         plan = Plan(options.canvas_size, strokes, timing, estimate, source_hash,
                     list(dict.fromkeys(s.color for s in strokes)),
                     color_clicks=options.color_clicks, brush_clicks=options.brush_clicks)
+        plan.notes.append(f"Покрытие: добавлено {len(repairs)} корректирующих штрихов; "
+                          f"незаполненных пикселей в проверяемой области: {uncovered}.")
         if best is None or estimate < best[0].estimated_seconds:
             best = plan, Image.fromarray(np.array(palette, np.uint8)[labels]), attempt
         if baseline is None:
@@ -253,6 +257,9 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         best = baseline
     plan, prepared, selected_attempt = best
     plan.notes.append("Локальная обработка; это не AI-генерация. Начинайте с пустого белого холста.")
+    if full_hd:
+        plan.notes.append(f"Full HD: расчёт {w}×{h}, до 128 цветов, без автоматического снижения качества. "
+                          f"Физический холст {cw}×{ch}; исходные детали не дорисовываются.")
     plan.notes.append("Штрихи по форме: набросок → отдельные цветовые области → тонкие детали."
                       if options.stroke_style == "Shape" else "Построчное заполнение областей.")
     plan.notes.append("Цвета из изображения через HSV; проверьте TEST DRAW. Непрозрачность 100%."

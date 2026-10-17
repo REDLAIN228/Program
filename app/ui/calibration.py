@@ -151,7 +151,7 @@ class CalibrationDialog(QDialog):
             if not 1 <= minimum < maximum <= 4096:
                 raise ValueError()
             replacement = BrushSlider(slider.start, slider.end, minimum, maximum)
-            choices = [n for n in (2, 6, 16, 32, 64) if minimum <= n <= maximum]
+            choices = [n for n in (1, 2, 6, 16, 32, 64) if minimum <= n <= maximum]
             if not choices:
                 choices = [minimum]
             if self.canvas and max(choices) >= min(self.canvas.width, self.canvas.height):

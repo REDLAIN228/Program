@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 import pytest
 
-from app.models import estimate_plan
+from app.models import Plan, Stroke, Timing, estimate_plan
 from app.planner import PlanOptions, build_plan, rdp, render_plan
 
 
@@ -82,7 +82,7 @@ def test_shape_brushwork_preserves_holes_and_uses_curved_closed_paths():
     assert fills and any(s.points[0] == s.points[-1] for s in fills)
     assert any(len(s.points) > 8 and len({p[1] for p in s.points}) > 8 for s in fills)
     stages = [s.priority for s in plan.strokes]
-    assert stages == sorted(stages) and set(stages) == {0, 1, 2}
+    assert stages == sorted(stages) and {0, 1, 2} <= set(stages)
 
 
 def test_scanline_mode_is_still_available_explicitly():
@@ -102,3 +102,52 @@ def test_small_adaptive_palette_keeps_dark_and_colored_regions_distinct():
     assert palette[labels[50, 20]] == (0, 0, 0)
     assert palette[labels[50, 50]] == (20, 160, 220)
     assert palette[labels[0, 0]] == (255, 255, 255)
+
+
+def test_actual_coverage_repairs_dense_thin_textured_regions():
+    y, x = np.mgrid[:112, :112]
+    gray = (25+170*(.5+.5*np.sin(x*.53+np.sin(y*.15)*4))).astype(np.uint8)
+    gray[:8] = gray[-8:] = 255
+    gray[:, :8] = gray[:, -8:] = 255
+    source = Image.fromarray(np.stack([gray]*3, axis=2))
+    plan, processed = build_plan(source, PlanOptions((168, 168), quality="Detailed", time_limit=None,
+                                                    brush_widths=(1, 2, 6, 16)))
+    expected = np.asarray(processed.resize((168, 168), Image.Resampling.NEAREST))
+    actual = np.asarray(render_plan(plan))
+    foreground = np.min(expected, axis=2) < 240
+    assert np.array_equal(actual[foreground], expected[foreground])
+    assert any(s.priority == 3 for s in plan.strokes)
+    assert "незаполненных пикселей в проверяемой области: 0" in plan.notes[0]
+
+
+def test_one_pixel_brush_stamps_one_pixel():
+    color = (10, 20, 30)
+    stroke = Stroke(((.5, .5), (.5, .5)), color, 1)
+    plan = Plan((64, 64), [stroke], Timing(), 1, "test", [color])
+    assert np.count_nonzero(np.any(np.asarray(render_plan(plan)) != 255, axis=2)) == 1
+
+
+def test_full_hd_preserves_native_resolution_thin_lines_and_quality_over_budget():
+    source = Image.new("RGB", (1920, 1080), "white")
+    draw = ImageDraw.Draw(source)
+    draw.rectangle((100, 100, 450, 400), fill=(80, 90, 100))
+    draw.line((100, 700, 1600, 700), fill=(255, 0, 0), width=1)
+    plan, processed = build_plan(source, PlanOptions((1920, 1080), quality="Full HD", time_limit=.001,
+                                                    brush_widths=(1, 6, 32, 64)))
+    assert processed.size == (1920, 1080)
+    actual = render_plan(plan)
+    assert actual.size == (1920, 1080)
+    assert actual.getpixel((500, 700)) == (255, 0, 0)
+    assert plan.estimated_seconds > .001
+    assert not any("снижены" in note for note in plan.notes)
+    assert any("без автоматического снижения качества" in note for note in plan.notes)
+
+
+def test_chunked_palette_quantization_matches_nearest_color_across_chunks():
+    from app.planner import _quantize
+    rng = np.random.default_rng(2718)
+    array = rng.integers(0, 256, (100, 320, 3), dtype=np.uint8)
+    palette = [(0, 0, 0), (255, 255, 255), (50, 150, 250)]
+    labels, _ = _quantize(Image.fromarray(array), palette, 3)
+    expected = np.argmin(((array.astype(float)[:, :, None]-np.asarray(palette))**2).sum(axis=3), axis=2)
+    assert np.array_equal(labels, expected)

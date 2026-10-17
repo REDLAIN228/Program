@@ -148,7 +148,9 @@ class MainWindow(QMainWindow):
         form.addRow("ШТРИХИ", self.brushwork)
         options = QHBoxLayout()
         self.quality = QComboBox()
-        self.quality.addItems(["Fast", "Balanced", "Detailed", "Ultra Detailed"])
+        self.quality.addItems(["Fast", "Balanced", "Detailed", "Ultra Detailed", "Full HD"])
+        self.quality.setToolTip("Full HD: расчёт до 1920 px и 128 цветов без автоматического снижения качества. "
+                               "Размер результата ограничен выбранным холстом.")
         self.quality.setCurrentText("Balanced")
         self.speed = QComboBox()
         self.speed.addItems(["Safe", "Normal", "Fast"])
@@ -175,7 +177,8 @@ class MainWindow(QMainWindow):
         buttons = [("CAPTURE", self.capture), ("IMPORT IMAGE", self.import_image), ("GENERATE", self.generate),
                    ("PREVIEW", self.make_plan), ("CALIBRATE", self.calibrate), ("TEST DRAW", self.test_draw),
                    ("LOCAL CANVAS", self.open_test_canvas), ("AI SETTINGS", self.ai_settings), ("CROP IMAGE", self.crop_image),
-                   ("LOAD PLAN", self.load_plan), ("SAVE PLAN", self.save_plan), ("DEBUG OVERLAY", self.show_debug)]
+                   ("LOAD PLAN", self.load_plan), ("SAVE PLAN", self.save_plan), ("DEBUG OVERLAY", self.show_debug),
+                   ("EXPORT PREVIEW PNG", self.export_preview)]
         for i, (label, function) in enumerate(buttons):
             if i < 6:
                 button = QPushButton(label)
@@ -682,10 +685,11 @@ class MainWindow(QMainWindow):
                        "для Image — IMPORT IMAGE.")
             return
         p = self.profile
-        options = PlanOptions((p.canvas.width, p.canvas.height) if p else (512, 512),
+        full_hd = self.quality.currentText() == "Full HD"
+        options = PlanOptions((p.canvas.width, p.canvas.height) if p else ((1920, 1080) if full_hd else (512, 512)),
                               self.quality.currentText(), self.style.currentText(), self.speed.currentText(),
                               self.time_limit(), [s.rgb for s in p.swatches] if p and not p.color_wheel else None,
-                              tuple(b.pixels for b in p.brushes) if p else (3, 9, 18),
+                              tuple(b.pixels for b in p.brushes) if p else ((1, 3, 9, 18, 36) if full_hd else (3, 9, 18)),
                               self.crop_fit.isChecked(), self.remove_bg.isChecked(),
                               *(selection_clicks(p) if p else (1, 1)),
                               stroke_style="Shape" if self.brushwork.currentIndex() == 0 else "Scanline")
@@ -701,12 +705,25 @@ class MainWindow(QMainWindow):
         self.processed_view.set_image(self.processed)
         self.draw_view.set_image(preview)
         self.previews.setCurrentIndex(2)
-        self.stats.setText(f"{len(self.plan.strokes)} штрихов · {len(self.plan.palette)} цветов · "
+        self.stats.setText(f"{self.plan.canvas_size[0]}×{self.plan.canvas_size[1]} px · "
+                           f"{len(self.plan.strokes)} штрихов · {len(self.plan.palette)} цветов · "
                            f"оценка {self.plan.estimated_seconds:.1f} с (зависит от игры)")
         self.log.setText("\n".join(self.plan.notes))
         self.store.save_plan(self.plan)
         self.set_state("IDLE")
         self.progress.setValue(100)
+
+    def export_preview(self):
+        if self.plan is None:
+            self.error("Сначала выполните PREVIEW")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Экспорт штрихов в размере холста", "drawing-preview.png", "PNG (*.png)")
+        if path:
+            try:
+                render_plan(self.plan).save(path, format="PNG")
+                self.log.setText(f"PNG сохранён: {self.plan.canvas_size[0]}×{self.plan.canvas_size[1]} px.")
+            except Exception as exc:
+                self.error(str(exc))
 
     def save_plan(self):
         if self.plan is None:
