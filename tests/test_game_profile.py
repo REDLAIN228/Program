@@ -29,7 +29,7 @@ def test_game_profile_roundtrip_resolution_and_unverified_status():
     assert not profile.verified
     assert Calibration.from_dict(profile.to_dict()).to_dict() == profile.to_dict()
     assert selection_clicks(profile) == (5, 2)
-    assert profile.brush_slider.minimum == 1 and profile.brush_slider.maximum == 100
+    assert profile.brush_slider.minimum == 1 and profile.brush_slider.maximum == 256
     assert profile.size_tab is None
     with pytest.raises(ValueError, match="1366"):
         screenshot_profile(replace(game_state(), client=Rect(0, 0, 1920, 1080)))
@@ -59,7 +59,7 @@ class TabbedBackend:
         self.point = (x-origin.x, y-origin.y)
         if self.pressed and self.point[1] == 404:
             assert self.tab == "color"
-            self.width = round(1+(self.point[0]-590)*99/130)
+            self.width = round(1+(self.point[0]-590)*255/130)
 
     def down(self):
         self.pressed = True
@@ -70,7 +70,7 @@ class TabbedBackend:
             self.tab = "color"
         elif point[1] == 404:
             assert self.tab == "color"
-            self.width = round(1+(point[0]-590)*99/130)
+            self.width = round(1+(point[0]-590)*255/130)
         elif point == p.brush_tool:
             pass
         else:
@@ -95,7 +95,7 @@ def test_executor_switches_hidden_tabs_and_uses_adaptive_colors():
     plan = Plan((555, 555), strokes, Timing(.00001, .00001, 1000000, 100), 1, "test", [])
     executor = DrawingExecutor(backend, profile)
     assert executor.run(plan) == "finished"
-    assert backend.drawing == [((0, 0, 0), 2), ((255, 0, 0), 6), ((0, 255, 0), 2)]
+    assert backend.drawing == [((0, 0, 0), 3), ((255, 0, 0), 7), ((0, 255, 0), 3)]
     assert backend.clicks.count(profile.color_tab) == 6
     assert profile.size_tab is None
     assert not any(r.contains(*point) for r in profile.forbidden for point in backend.clicks)
@@ -142,7 +142,7 @@ def test_legacy_paid_preset_is_migrated_and_requires_new_test(tmp_path):
     profile = Store(tmp_path).profiles()[old["name"]]
     assert not profile.verified
     assert profile.size_tab is None
-    assert profile.brush_slider.maximum == 100
+    assert profile.brush_slider.maximum == 256
     assert profile.brushes[0].point == profile.brush_slider.start
     backend = TabbedBackend(profile)
     executor = DrawingExecutor(backend, profile)
@@ -154,12 +154,33 @@ def test_legacy_paid_preset_is_migrated_and_requires_new_test(tmp_path):
 
 
 def test_slider_bounds_mapping_and_incomplete_calibration():
-    slider = BrushSlider((590, 404), (720, 404), 1, 100)
+    slider = BrushSlider((590, 404), (720, 404), 1, 256)
     assert slider.point(1) == (590, 404)
-    assert slider.point(100) == (720, 404)
-    assert slider.point(50) == (654, 404)
-    with pytest.raises(ValueError): slider.point(101)
+    assert slider.point(256) == (720, 404)
+    assert slider.point(128) == (655, 404)
+    with pytest.raises(ValueError): slider.point(257)
     with pytest.raises(ValueError): BrushSlider((590, 404), (720, 404)).point(5)
+
+
+def test_old_100_range_migrates_once_preserving_custom_geometry(tmp_path):
+    from app.game_profile import FREE_SLIDER_ADAPTER, restrict_game_profile
+    from app.storage import Store
+    profile = screenshot_profile(game_state())
+    profile.adapter = "roblox-free-slider-v1"
+    profile.brush_slider = BrushSlider((600, 410), (730, 410), 1, 100)
+    profile.character = Rect(155, 255, 330, 490)
+    profile.verified = True
+    store = Store(tmp_path)
+    store.save_profile(profile)
+    migrated = store.profiles()[profile.name]
+    assert migrated.brush_slider == BrushSlider((600, 410), (730, 410), 1, 256)
+    assert migrated.character == profile.character
+    assert migrated.adapter == FREE_SLIDER_ADAPTER and not migrated.verified
+    migrated.verified = True
+    assert not restrict_game_profile(migrated)
+    assert migrated.verified
+    store.save_profile(migrated)
+    assert store.profiles()[profile.name].verified
 
 
 def test_stop_during_slider_drag_releases_mouse():
@@ -202,4 +223,4 @@ def test_slider_drag_starts_at_detected_thumb_instead_of_assuming_minimum():
                 Timing(.00001, .00001, 1000000, 100), 1, "test", [])
     assert DrawingExecutor(backend, profile).run(plan) == "finished"
     assert (720, 404) in backend.clicks
-    assert backend.drawing == [((0, 0, 0), 16)]
+    assert backend.drawing == [((0, 0, 0), 17)]

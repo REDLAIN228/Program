@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QColorDialog, QDialog, QDialogButtonBox, QGridLay
 
 from app.automation import WindowState
 from app.models import Brush, BrushSlider, Calibration, ColorWheel, Rect, Swatch
-from app.game_profile import screenshot_profile
+from app.game_profile import FREE_SLIDER_ADAPTER, screenshot_profile
 from app.ui.common import STYLE, fit_window, pixmap
 
 
@@ -101,7 +101,7 @@ class CalibrationDialog(QDialog):
         status.addWidget(self.undo_button)
         layout.addLayout(status)
         QShortcut(QKeySequence("Ctrl+Z"), self, activated=self.undo)
-        notice = QLabel("Для этой игры используйте профиль без доната: бесплатный ползунок 1–100. "
+        notice = QLabel("Для этой игры используйте профиль без доната: бесплатный ползунок 1–256. "
                         "Вкладка Размер и инструменты 6, 7, 8 исключены. "
                         "HSV пока требует проверки в игре через TEST DRAW: чёрная, красная, зелёная полоски. "
                         "Кисть — обычная сплошная, непрозрачность 100%, стабилизатор 0%, увеличение 100%. "
@@ -184,7 +184,7 @@ class CalibrationDialog(QDialog):
         self.refresh()
 
     def set_mode(self, mode):
-        if mode == "tabs" and self.adapter == "roblox-free-slider-v1":
+        if mode == "tabs" and self.adapter in {"roblox-free-slider-v1", FREE_SLIDER_ADAPTER}:
             self.instructions.setText("Вкладка Размер — донатная. В этом профиле используется бесплатный ползунок.")
             return
         if mode == "brush":
