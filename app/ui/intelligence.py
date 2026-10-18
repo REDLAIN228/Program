@@ -196,11 +196,12 @@ class StudioActions:
             self.timer_ring.display(0, self.configured_limit(), "READY TO DRAW")
             return
         remaining = snapshot["remaining"]
-        total = len(self.plan.strokes) if self.plan else 0
+        total = (getattr(executor, "total_strokes", 0) if executor and executor.clock else
+                 self._last_clock.get("total", 0) if self._last_clock else 0)
         done = len(executor.executed_indices) if executor else (self._last_clock.get("strokes", 0) if self._last_clock else 0)
-        progress = done/max(1, total)
+        progress = min(1., done/max(1, total))
         if not executor and self._last_clock:
-            progress = self._last_clock.get("progress", 0)
+            progress = min(1., self._last_clock.get("progress", 0))
         eta = self._last_eta
         pen_seconds = executor._pen_seconds if executor else snapshot.get("draw_seconds", 0.)
         if executor and executor._pen_started is not None:

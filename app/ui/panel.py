@@ -24,7 +24,7 @@ from app.models import Plan, Rect, Stroke, Timing, estimate_plan
 from app.planner import PlanOptions, build_plan, render_plan, render_placement
 from app.storage import Store
 from app.ui.calibration import CalibrationDialog, ClickImage
-from app.ui.common import Job, Preview, STYLE, fit_window, LogView
+from app.ui.common import Job, Preview, STYLE, fit_window, LogView, GuiBridge
 from app.ui.floating import FloatingIcon
 from app.ui.test_canvas import QtCanvasBackend, TestCanvas
 from app.ui.intelligence import StudioActions
@@ -78,6 +78,9 @@ class MainWindow(StudioActions, QMainWindow):
         self.local_mode = False
         self.native_test = os.name == "nt"
         self.job = self.executor = None
+        self._active_plan = None
+        self._capture_bridge = GuiBridge()
+        self._capture_bridge.setParent(self)
         self.debug = None
         self.hotkeys = None
         self.hotkeys_ready = os.name != "nt"
@@ -381,8 +384,14 @@ class MainWindow(StudioActions, QMainWindow):
 
     def _job_finished(self):
         previous = self.job
+        if self.executor and self.executor.clock and self._active_plan is not None:
+            total = len(self._active_plan.strokes)
+            done = len(self.executor.executed_indices)
+            self._last_clock = {**self.executor.run_metrics, "total": total,
+                                "progress": min(1., done/max(1, total))}
         self.job = None
         self.executor = None
+        self._active_plan = None
         if getattr(self, "_reset_on_finish", False):
             self._round_clock = self._last_clock = self._last_eta = None
             self._reset_on_finish = False
@@ -979,7 +988,7 @@ class MainWindow(StudioActions, QMainWindow):
                     if self._closing:
                         QTimer.singleShot(0, self.quit_app)
                     return
-                sizes = [n for n in (1, 6, 16, 1) if n in {b.pixels for b in p.brushes}]
+                sizes = [n for n in (1, 2, 6, 16, 1) if n in {b.pixels for b in p.brushes}]
                 if not sizes:
                     available = sorted({b.pixels for b in p.brushes})
                     sizes = available[:3]+available[:1]
@@ -1009,9 +1018,13 @@ class MainWindow(StudioActions, QMainWindow):
             description = ("Программа нарисует три полоски: чёрную, красную и зелёную, сверху вниз. "
                            if self.profile.color_wheel else "Программа нарисует короткую линию в центре холста. ")
             if QMessageBox.question(self, "TEST DRAW · реальный ввод", description +
-                                    "Выставьте непрозрачность 100%, откройте калиброванную палитру. Продолжить?") != QMessageBox.StandardButton.Yes:
+                                    "Выберите обычную кисть без аэрографа и текстуры, непрозрачность 100%, "
+                                    "стабилизатор 0%, масштаб холста 100%. "
+                                    "Откройте Цвет → Колесо и закройте список стилей. Продолжить?") != QMessageBox.StandardButton.Yes:
                 return
             p = self.profile
+            p.verified = False
+            self.store.save_profile(p)
             if p.color_wheel:
                 widths = sorted(b.pixels for b in p.brushes)
                 thin, thick = widths[0], widths[min(1, len(widths)-1)]
@@ -1033,12 +1046,14 @@ class MainWindow(StudioActions, QMainWindow):
 
     def _begin_draw(self, executor, plan, limit, test):
         self._begin_timestamp = time.monotonic()
-        self._draw_deadline = (self._round_clock.started+self._round_clock.limit
+        self._draw_deadline = None if test else (self._round_clock.started+self._round_clock.limit
                                if self._round_clock is not None and self._round_clock.limit is not None else
                                self._begin_timestamp+limit if limit is not None else None)
         self._simulation_timer.stop()
         self._analysis_timer.stop()
         self.executor = executor
+        self._active_plan = plan
+        self._last_clock = self._last_eta = None
         self._pending_run = True
         try:
             self._activate_target()
@@ -1063,14 +1078,24 @@ class MainWindow(StudioActions, QMainWindow):
                          max(0., limit-(time.monotonic()-self._begin_timestamp)))
                 if limit <= plan.safety_buffer:
                     raise SafetyError("До дедлайна слишком мало времени. Синхронизируйте таймер или уменьшите рисунок.")
-            snapshot = self._screenshot(self._get_target())
-            if not blank_white_canvas(snapshot, self.profile.canvas):
-                raise SafetyError("Холст уже закрашен или не белый. Очистите его в игре перед TEST DRAW / RUN. "
-                                  "Белые области плана рассчитаны на пустой белый фон.")
-            before = snapshot if test else None
+            target = self._get_target()
             def execute(job):
+                try:
+                    executor.park_pointer(plan)
+                except InterruptedError:
+                    return ("stopped", None, None) if test else "stopped"
+                snapshot = self._capture_bridge.call(lambda: self._screenshot(target))
+                if not blank_white_canvas(snapshot, executor.profile.canvas):
+                    raise SafetyError("Холст уже закрашен или не белый. Очистите его в игре перед TEST DRAW / RUN. "
+                                      "Белые области плана рассчитаны на пустой белый фон.")
                 outcome = executor.run(plan, job.stats.emit, job.state.emit, limit, not test,
                                        deadline=self._draw_deadline, clock_origin=self._begin_timestamp)
+                if test:
+                    after = None
+                    if outcome == "finished":
+                        executor.park_pointer(plan)
+                        after = self._capture_bridge.call(lambda: self._screenshot(target))
+                    return outcome, snapshot, after
                 if not test:
                     actual = replace(plan, strokes=[plan.strokes[i] for i in executor.executed_indices])
                     executor._archive_path = self.store.archive_image(render_plan(actual))
@@ -1079,7 +1104,7 @@ class MainWindow(StudioActions, QMainWindow):
             job.stats.connect(self.live_stats)
             job.state.connect(self.set_state)
             if test:
-                done = lambda outcome: self._test_finished(outcome, before, plan)
+                done = lambda result: self._test_finished(result[0], result[1], plan, result[2])
             else:
                 done = lambda outcome: self._draw_finished(outcome, plan, executor.completed)
             self._start_job(job, done)
@@ -1087,35 +1112,26 @@ class MainWindow(StudioActions, QMainWindow):
             self.executor = None
             self.error(str(exc))
 
-    def _test_finished(self, outcome, before, test_plan=None):
+    def _test_finished(self, outcome, before, test_plan=None, after=None):
         if outcome != "finished":
             self.show()
             self.log.setText("TEST DRAW остановлен; профиль не подтверждён.")
             return
         try:
-            after = self._screenshot(self._get_target())
+            if after is None:
+                after = self._screenshot(self._get_target())
             r = self.profile.canvas
             if test_plan is not None:
-                bounds = (r.x, r.y, r.x+r.width, r.y+r.height)
-                a = np.asarray(before.crop(bounds), np.int16)
-                b = np.asarray(after.crop(bounds), np.int16)
-                changed_mask = np.max(np.abs(a-b), axis=2) > 20
-                allowed = np.zeros(changed_mask.shape, dtype=bool)
-                for stroke in test_plan.strokes:
-                    points = [r.map(p, stroke.width/2+1) for p in stroke.points]
-                    padding = max(3, int(np.ceil(stroke.width/2))+2)
-                    x0 = max(0, min(p[0] for p in points)-r.x-padding)
-                    x1 = min(r.width, max(p[0] for p in points)-r.x+padding+1)
-                    y0 = max(0, min(p[1] for p in points)-r.y-padding)
-                    y1 = min(r.height, max(p[1] for p in points)-r.y+padding+1)
-                    allowed[y0:y1, x0:x1] = True
-                outside = int(np.count_nonzero(changed_mask & ~allowed))
-                if outside > max(12, np.count_nonzero(changed_mask)*.05):
+                from app.draw_check import inspect_test
+                diagnostic = self.store.root/"logs"
+                report = inspect_test(before, after, self.profile, test_plan, diagnostic)
+                if report["status"] == "outside":
                     self.profile.verified = False
                     self.store.save_profile(self.profile)
                     self.error("TEST DRAW: след вышел далеко за границы тестовых линий. "
                                "Толщина или инструмент не соответствуют профилю. "
-                               "RUN заблокирован; выполните CHECK BRUSH SIZE и проверьте обычную кисть.")
+                               "RUN заблокирован; выполните CHECK BRUSH SIZE и проверьте обычную кисть. "
+                               f"Снимок результата: {diagnostic/'test-draw-after.png'}")
                     return
             # Inspect the actual test-line region, not animated characters/UI.
             box = (r.x + round(r.width * .38), r.y + round(r.height * .46),

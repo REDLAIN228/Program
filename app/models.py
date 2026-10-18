@@ -234,6 +234,21 @@ class Timing:
     def control_settle(self) -> float:
         return max(.35, self.settle)
 
+    def pen_event(self, width: int, feedback: bool = False) -> float:
+        # A one-pixel corner must survive at least one 60 Hz game frame.
+        return max(self.event, 1/(60 if width <= 2 else 120)) if feedback else self.event
+
+    def pen_sample(self, width: int, feedback: bool = False) -> float:
+        return min(self.sample_pixels, max(2, width)) if feedback else self.sample_pixels
+
+    @property
+    def pen_hold(self) -> float:
+        return max(.035, self.event)
+
+    @property
+    def pen_release(self) -> float:
+        return max(.05, self.event)
+
 
 @dataclass(frozen=True)
 class Stroke:
@@ -250,13 +265,14 @@ class Stroke:
         return sum(math.hypot((b[0] - a[0]) * w, (b[1] - a[1]) * h)
                    for a, b in zip(self.points, self.points[1:]))
 
-    def seconds(self, size: tuple[int, int], timing: Timing) -> float:
+    def seconds(self, size: tuple[int, int], timing: Timing, feedback: bool = False) -> float:
         length = self.length(size)
         samples = sum(max(1, math.ceil(math.hypot((b[0]-a[0])*size[0], (b[1]-a[1])*size[1])
-                                      / timing.sample_pixels))
+                                      / timing.pen_sample(self.width, feedback)))
                       for a, b in zip(self.points, self.points[1:]))
         samples = max(1, samples)
-        return samples * timing.event + length / timing.pixels_per_second + 4 * timing.event
+        overhead = (timing.control_hold+2*timing.pen_hold+timing.pen_release if feedback else 4*timing.event)
+        return samples * timing.pen_event(self.width, feedback) + length / timing.pixels_per_second + overhead
 
 
 @dataclass
@@ -359,8 +375,8 @@ def estimate_plan(strokes: list[Stroke], size: tuple[int, int], timing: Timing,
     total = 0.0
     prev_color = prev_width = prev_end = None
     for s in strokes:
-        total += s.seconds(size, timing)
         feedback_controls = brush_clicks == 12
+        total += s.seconds(size, timing, feedback_controls)
         # The feedback adapter paces mouse-up travel and verifies size again
         # after each color change. UI travel uses a nominal 200 px per click;
         # this remains an estimate, not recognition of the game's round timer.

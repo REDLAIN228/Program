@@ -63,7 +63,7 @@ class TabbedBackend:
     def snapshot(self): return game_state()
     def is_foreground(self): return True
     def point_belongs_to_target(self, x, y): return self.snapshot().client.contains(x, y)
-    def sample(self, x, y): return (0, 0, 0)
+    def sample(self, x, y): return getattr(self, "rgb", (0, 0, 0))
 
     def move(self, x, y):
         origin = self.snapshot().client
@@ -465,3 +465,117 @@ def test_stop_during_brush_retry_prevents_further_clicks():
     assert executor.run(plan) == "stopped"
     assert backend.clicks.count(profile.brush_slider.increase) == 1
     assert not backend.drawing and not backend.pressed
+
+
+def test_missed_color_selection_is_corrected_after_brush_controls():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+
+    class ChangesColorOnSize(TabbedBackend):
+        corrupt_once = True
+
+        def down(self):
+            super().down()
+            if self.point == profile.brush_slider.increase and self.corrupt_once:
+                self.rgb = (0, 0, 255)
+                self.corrupt_once = False
+
+    backend = ChangesColorOnSize(profile)
+    backend.width = 1
+    plan = Plan((555, 555), [Stroke(((.42, .5), (.58, .5)), (255, 0, 0), 2)],
+                Timing.preset("Turbo · 7"), 1, "test", [])
+    assert DrawingExecutor(backend, profile).run(plan) == "finished"
+    assert backend.clicks.count((680, 171)) == 2
+    assert backend.drawing == [((255, 0, 0), 2)]
+
+
+def test_persistently_wrong_color_stops_before_painting():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = TabbedBackend(profile)
+    backend.sample = lambda *_: (0, 0, 255)
+    plan = Plan((555, 555), [Stroke(((.42, .5), (.58, .5)), (255, 0, 0), 2)],
+                Timing(), 1, "test", [])
+    with pytest.raises(SafetyError, match="Индикатор цвета"):
+        DrawingExecutor(backend, profile).run(plan)
+    assert not backend.drawing and not backend.pressed
+
+
+def test_delayed_pen_release_cannot_leave_tails_on_mouse_up_travel(monkeypatch):
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+
+    class DeferredRelease(TabbedBackend):
+        release_remaining = 0.
+        tails = []
+
+        def up(self):
+            if self.pressed and profile.canvas.contains(*self.point):
+                self.release_remaining = 1/60
+            super().up()
+
+        def move(self, x, y):
+            old = self.point
+            super().move(x, y)
+            if self.release_remaining > 0 and self.point != old:
+                self.tails.append((old, self.point))
+
+    backend = DeferredRelease(profile)
+    backend.width = 1
+    executor = DrawingExecutor(backend, profile)
+    wait = executor._wait
+
+    def advance(seconds):
+        wait(0)  # Keep cancellation and deadline checks, without wall-clock sleeps.
+        backend.release_remaining = max(0., backend.release_remaining-seconds)
+
+    monkeypatch.setattr(executor, "_wait", advance)
+    strokes = [Stroke(((.2, y), (.3, y)), (0, 0, 0), 1) for y in (.2, .8)]
+    plan = Plan((555, 555), strokes, Timing.preset("Turbo · 7"), 1, "test", [])
+    assert executor.run(plan) == "finished"
+    executor.park_pointer(plan)
+    assert len(backend.drawing) == 2
+    assert not backend.tails
+    assert not profile.canvas.contains(*backend.point)
+    assert not any(area.contains(*backend.point) for area in profile.forbidden)
+    assert not backend.pressed
+
+
+def test_game_profile_adds_color_check_once_preserving_custom_indicator():
+    from app.game_profile import restrict_game_profile
+    profile = screenshot_profile(game_state())
+    profile.color_indicator = None
+    profile.verified = True
+    assert restrict_game_profile(profile)
+    assert profile.color_indicator == (565, 283) and not profile.verified
+    profile.verified = True
+    assert not restrict_game_profile(profile) and profile.verified
+    profile.color_indicator = (566, 284)
+    assert not restrict_game_profile(profile)
+    assert profile.color_indicator == (566, 284)
+
+
+def test_thin_corner_is_visible_to_a_frame_sampled_target(monkeypatch):
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = TabbedBackend(profile)
+    backend.width = 1
+    executor = DrawingExecutor(backend, profile)
+    elapsed, frame, observed = [0.], [.008], []
+    wait = executor._wait
+
+    def advance(seconds):
+        wait(0)
+        end = elapsed[0]+seconds
+        while frame[0] <= end:
+            if backend.pressed and profile.canvas.contains(*backend.point):
+                observed.append(backend.point)
+            frame[0] += 1/60
+        elapsed[0] = end
+
+    monkeypatch.setattr(executor, "_wait", advance)
+    stroke = Stroke(((.2, .2), (.25, .2), (.25, .25)), (0, 0, 0), 1)
+    plan = Plan((555, 555), [stroke], Timing.preset("Turbo · 7"), 1, "test", [])
+    assert executor.run(plan) == "finished"
+    mapped = [profile.canvas.map(point, 1.5) for point in stroke.points]
+    assert all(point in observed for point in mapped)  # Endpoints and the sharp corner survived sampling.

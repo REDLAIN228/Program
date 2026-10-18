@@ -306,6 +306,37 @@ class DrawingExecutor:
                 self._brush_failure(width, current, "Не удалось выставить точный размер бесплатным регулятором.")
         self._width = width
 
+    def park_pointer(self, plan):
+        """Release and move outside the canvas before taking comparison images."""
+        while True:
+            try:
+                return self._park_pointer(plan)
+            except _Paused:
+                self.backend.up()
+                while self.pause_event.is_set():
+                    self._guard()
+                    if self.stop_event.wait(.025):
+                        raise InterruptedError("Рисование остановлено")
+                self._interrupted.clear()
+
+    def _park_pointer(self, plan):
+        if self._session is None:
+            self._session = self._guard()
+        self.backend.up()
+        self._wait(plan.timing.pen_release)
+        r = self.profile.canvas
+        bounds = Rect(0, 0, *self.profile.client_size)
+        candidates = [(r.x-10, r.y-10), (r.x+r.width+10, r.y-10),
+                      (r.x-10, r.y+r.height+10), (10, 10),
+                      (bounds.width-11, bounds.height-11)]
+        for x, y in candidates:
+            if (bounds.contains(x, y) and not r.contains(x, y)
+                    and not any(area.contains(x, y) for area in self.profile.forbidden)):
+                self._travel(self._session.client.x+x, self._session.client.y+y, plan)
+                self._wait(max(.12, plan.timing.settle))
+                return True
+        return False  # A canvas covering the entire client has no parking area.
+
     def check_brushes(self, plan, widths, progress=lambda *_: None):
         """Exercise only free brush controls; never move onto the drawing canvas."""
         if not widths or not self.profile.brush_slider or not self.profile.brush_slider.readout:
@@ -375,6 +406,7 @@ class DrawingExecutor:
         self._deadline = deadline if deadline is not None else (started+time_limit if time_limit is not None else None)
         from app.smart_timer import DrawingClock, costs, transition_cost
         self.clock = DrawingClock(None if self._deadline is None else max(0., self._deadline-started))
+        self.total_strokes = len(plan.strokes)
         if clock_origin is not None:
             self.clock.started = clock_origin
             self.clock.limit = None if self._deadline is None else max(0., self._deadline-clock_origin)
@@ -496,38 +528,60 @@ class DrawingExecutor:
                                 "predicted": measured_prediction, "strokes": len(self.executed_indices),
                                 "skipped": len(self.skipped_indices), "draw_seconds": self._pen_seconds}
 
+    def _select_color(self, color, plan):
+        if self.profile.color_tab:
+            self._click(self.profile.color_tab, plan)
+        wheel = self.profile.color_wheel
+        if wheel:
+            if wheel.mode_button:
+                self._click(wheel.mode_button, plan)
+            for point in wheel.points(color):
+                self._click(point, plan)
+        else:
+            swatch = next(s for s in self.profile.swatches if s.rgb == color)
+            for anchor in self.profile.anchors:
+                if anchor.point == swatch.point:
+                    self._check_anchor(anchor)
+            self._click(swatch.point, plan)
+
+    def _color_matches(self, color, plan):
+        if not self.profile.color_indicator:
+            return True
+        assert self._session
+        x, y = self.profile.color_indicator
+        x, y = x+self._session.client.x, y+self._session.client.y
+        matches = 0
+        for attempt in range(6):
+            self._guard()
+            if not self.backend.point_belongs_to_target(x, y):
+                raise SafetyError("Индикатор цвета перекрыт другим окном")
+            actual = self.backend.sample(x, y)
+            matches = matches+1 if max(abs(a-b) for a, b in zip(actual, color)) <= self.profile.color_tolerance else 0
+            if matches >= 2:
+                return True
+            self._wait(max(.05 if matches else .12, plan.timing.event))
+        return False
+
     def _execute(self, stroke: Stroke, plan: Plan, started: float,
                  time_limit: float | None) -> None:
         color_changed = self._color != stroke.color
         if not self._tool_selected and self.profile.brush_tool:
             self._click(self.profile.brush_tool, plan)
             self._tool_selected = True
-        if self._color != stroke.color:
-            if self.profile.color_tab:
-                self._click(self.profile.color_tab, plan)
-            wheel = self.profile.color_wheel
-            if wheel:
-                if wheel.mode_button:
-                    self._click(wheel.mode_button, plan)
-                for point in wheel.points(stroke.color):
-                    self._click(point, plan)
-            else:
-                swatch = next(s for s in self.profile.swatches if s.rgb == stroke.color)
-                for anchor in self.profile.anchors:
-                    if anchor.point == swatch.point:
-                        self._check_anchor(anchor)
-                self._click(swatch.point, plan)
-            if self.profile.color_indicator:
-                self._guard()
-                assert self._session
-                x, y = self.profile.color_indicator
-                actual = self.backend.sample(self._session.client.x + x, self._session.client.y + y)
-                if max(abs(a-b) for a, b in zip(actual, stroke.color)) > self.profile.color_tolerance:
-                    raise SafetyError("Индикатор цвета не совпал с палитрой. Проверьте калибровку.")
-            self._color = stroke.color
+        if color_changed:
+            self._select_color(stroke.color, plan)
         feedback = self.profile.brush_slider and self.profile.brush_slider.readout
+        controls_changed = color_changed or self._width != stroke.width
         if self._width != stroke.width or (feedback and color_changed):
             self._set_brush(stroke.width, plan)
+        if controls_changed and not self._color_matches(stroke.color, plan):
+            self._select_color(stroke.color, plan)
+            if feedback:
+                self._set_brush(stroke.width, plan)
+            if not self._color_matches(stroke.color, plan):
+                raise SafetyError("Индикатор цвета не совпал с палитрой после повторного выбора. "
+                                  "Рисование остановлено до штриха. Проверьте Цвет → Колесо и калибровку.")
+        self._color = stroke.color
         assert self._session
         canvas = plan.drawing_area(self.profile.canvas)
         local_points = [canvas.map(p, stroke.width / 2 + 1) for p in stroke.points]
@@ -539,22 +593,27 @@ class DrawingExecutor:
         try:
             self._pen_started = time.monotonic()
             self.backend.down()
-            self._wait(plan.timing.event)
+            self._wait(plan.timing.pen_hold if feedback else plan.timing.event)
             for a, b in zip(points, points[1:]):
                 length = math.hypot(b[0] - a[0], b[1] - a[1])
-                steps = max(1, math.ceil(length / plan.timing.sample_pixels))
+                steps = max(1, math.ceil(length / plan.timing.pen_sample(stroke.width, bool(feedback))))
                 for i in range(1, steps + 1):
                     if self._deadline is not None and time.monotonic() >= self._deadline:
                         raise DeadlineReached("Достигнут лимит раунда")
                     x = round(a[0] + (b[0] - a[0]) * i / steps)
                     y = round(a[1] + (b[1] - a[1]) * i / steps)
                     self._move(x, y)
-                    self._wait(plan.timing.event + length / steps / plan.timing.pixels_per_second)
+                    self._wait(plan.timing.pen_event(stroke.width, bool(feedback))
+                               + length / steps / plan.timing.pixels_per_second)
+            if feedback:
+                self._wait(plan.timing.pen_hold)
         finally:
             self.backend.up()
             if self._pen_started is not None:
                 self._pen_seconds += time.monotonic()-self._pen_started
                 self._pen_started = None
+        if feedback:
+            self._wait(plan.timing.pen_release)
 
     def _check_anchor(self, anchor) -> None:
         self._guard()

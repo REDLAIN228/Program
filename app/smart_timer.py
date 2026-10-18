@@ -35,7 +35,7 @@ class DrawingClock:
 def performance_key(profile, timing):
     from dataclasses import asdict
     identity = dict(process=profile.target_process, adapter=profile.adapter, dpi=profile.dpi,
-                    client=profile.client_size, timing=asdict(timing))
+                    client=profile.client_size, timing=asdict(timing), input_policy=2)
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:24]
 
 

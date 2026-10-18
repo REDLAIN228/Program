@@ -110,3 +110,24 @@ def test_canvas_flood_during_test_draw_is_rejected_without_confirmation(tmp_path
     MainWindow._test_finished(panel, "finished", Image.new("RGB", (1366, 768), "white"), plan)
     assert errors and "далеко" in errors[0]
     assert not panel.profile.verified
+
+
+def test_clock_uses_test_stroke_count_instead_of_image_plan(qapp, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.smart_timer import DrawingClock
+    monkeypatch.setattr(MainWindow, "start_hotkeys", lambda self: None)
+    panel = MainWindow(Store(tmp_path/"data"))
+    panel.plan = Plan((100, 100), [Stroke(((.2, .5), (.8, .5)), (0, 0, 0), 1)], Timing(), 1, "x", [])
+    clock = DrawingClock(None)
+    panel.executor = SimpleNamespace(clock=clock, total_strokes=3, executed_indices=[0, 1, 2],
+                                     _pen_seconds=1., _pen_started=None,
+                                     pause_event=SimpleNamespace(is_set=lambda: False))
+    panel.update_clock()
+    assert "100% · 3/3" in panel.clock_stats.text()
+    panel.executor = None
+    panel._last_clock = {**clock.snapshot(), "total": 3, "strokes": 3, "progress": 1.}
+    panel.update_clock()
+    assert "100% · 3/3" in panel.clock_stats.text()
+    panel._clock_timer.stop()
+    panel.icon.close()
+    panel.hide()

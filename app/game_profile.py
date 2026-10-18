@@ -29,8 +29,11 @@ def restrict_game_profile(profile: Calibration) -> bool:
     wrong_old_range = (profile.adapter == "roblox-free-slider-v1" and profile.brush_slider is not None
                        and (profile.brush_slider.minimum, profile.brush_slider.maximum) == (1, 100))
     needs_feedback = profile.brush_slider is None or profile.brush_slider.readout is None
+    needs_color_check = (old_geometry and profile.color_indicator is None)
     changed = (profile.brush_slider is None or profile.size_tab is not None or needs_feedback
-               or profile.forbidden != PAID_AREAS or needs_fine_brush or wrong_old_range)
+               or profile.forbidden != PAID_AREAS or needs_fine_brush or wrong_old_range or needs_color_check)
+    if needs_color_check:
+        profile.color_indicator = (565, 283)
     if profile.brush_slider is None:
         profile.brush_slider = BrushSlider((590, 404), (720, 404), 1, 256)
     elif wrong_old_range:
@@ -59,6 +62,7 @@ def screenshot_profile(state: WindowState) -> Calibration:
         Rect(785, 114, 555, 555), [],
         [Brush(n, (590, 404)) for n in (1, 2, 6, 16, 32, 64)],
         brush_tool=(868, 720), character=Rect(145, 250, 340, 500),
+        color_indicator=(565, 283),
         color_wheel=ColorWheel((644, 209), (643, 135), Rect(606, 171, 75, 76),
                                value_reset=(746, 132), mode_button=(573, 317)),
         color_tab=(593, 100), brush_slider=feedback_slider(BrushSlider((590, 404), (720, 404), 1, 256)),
