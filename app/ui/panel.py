@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
         self.store = store or Store()
         self.settings = self.store.settings()
         self.profiles = self.store.profiles()
-        self.setWindowTitle("ANIME DRAWER · SLOW CONTROL")
+        self.setWindowTitle("ANIME DRAWER · NORMAL CONTROL")
         self.setStyleSheet(STYLE)
         self.setWindowOpacity(.98)
         self.setAcceptDrops(True)
@@ -154,8 +154,8 @@ class MainWindow(QMainWindow):
         self.quality.setCurrentText("Balanced")
         self.speed = QComboBox()
         self.speed.addItems(["Slow", "Safe", "Normal", "Fast"])
-        self.speed.setCurrentText("Slow")
-        self.speed.setToolTip("Slow: медленные штрихи и плавное управление. Для Roblox начните с него.")
+        self.speed.setCurrentText("Normal")
+        self.speed.setToolTip("Normal: на две ступени выше Slow. Скорость применяется и к проверке кисти.")
         self.limit = QComboBox()
         self.limit.addItems(["Auto · 165 s", "60 seconds", "120 seconds", "165 seconds", "Unlimited",
                              "240 seconds", "300 seconds"])
@@ -814,7 +814,8 @@ class MainWindow(QMainWindow):
                 if not sizes:
                     available = sorted({b.pixels for b in p.brushes})
                     sizes = available[:3]+available[:1]
-                plan = Plan((p.canvas.width, p.canvas.height), [], Timing.preset("Slow"), 0, "brush-check", [])
+                plan = Plan((p.canvas.width, p.canvas.height), [], Timing.preset(self.speed.currentText()),
+                            0, "brush-check", [])
                 job = Job(lambda j: executor.check_brushes(plan, sizes, j.progress.emit), self)
                 def finished(message):
                     self.show()
@@ -851,7 +852,7 @@ class MainWindow(QMainWindow):
             else:
                 color = min(p.swatches, key=lambda s: sum(s.rgb)).rgb
                 strokes = [Stroke(((.42, .50), (.58, .50)), color, min(b.pixels for b in p.brushes))]
-            timing = Timing.preset("Slow" if p.brush_slider and p.brush_slider.readout else "Safe")
+            timing = Timing.preset(self.speed.currentText() if p.brush_slider and p.brush_slider.readout else "Safe")
             clicks = selection_clicks(p)
             plan = Plan((p.canvas.width, p.canvas.height), strokes, timing,
                         estimate_plan(strokes, (p.canvas.width, p.canvas.height), timing, *clicks), "test",

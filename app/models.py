@@ -223,11 +223,11 @@ class Timing:
 
     @property
     def control_hold(self) -> float:
-        return max(.08, self.event * 3)
+        return max(.105, self.event * 3)
 
     @property
     def control_settle(self) -> float:
-        return max(.20, self.settle)
+        return max(.35, self.settle)
 
 
 @dataclass(frozen=True)
