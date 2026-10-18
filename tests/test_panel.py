@@ -1,7 +1,8 @@
 import time
+import numpy as np
 
 from PIL import Image, ImageDraw
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QMessageBox, QInputDialog, QFileDialog
 
 from app.models import Plan, Rect, Stroke, Timing
 from app.storage import Store
@@ -33,6 +34,15 @@ def test_ui_import_preview_calibration_test_and_run_end_to_end(qapp, tmp_path, m
     wait_until(qapp, lambda: panel.job is None and not panel._pending_run)
     assert not errors
     assert panel.profile.verified
+    panel.limit.setCurrentText("Custom")
+    panel.custom_time.setValue(90)
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **kw: ("Short", True))
+    panel.save_timer_preset()
+    assert 90 in panel.store.settings()["timer_presets"].values()
+    panel.sync_round_clock()
+    assert panel._round_clock.limit == 90 and panel.time_limit() <= 90
+    panel.reset_round_clock()
+    assert panel._round_clock is None
     panel.local_canvas.clear()
     source = Image.new("RGB", (100, 100), "white")
     ImageDraw.Draw(source).rectangle((20, 20, 80, 80), fill=COLORS[1])
@@ -51,6 +61,23 @@ def test_ui_import_preview_calibration_test_and_run_end_to_end(qapp, tmp_path, m
     assert panel.plan.canvas_size == (120, 160)
     assert panel.plan.drawing_rect is not None
     assert panel.draw_view._image.size == (panel.profile.canvas.width, panel.profile.canvas.height)
+    first_plan = panel.plan
+    panel.make_plan()
+    assert panel.plan is first_plan and panel.job is None  # Unchanged PREVIEW uses the actual cache.
+    assert panel.engine.currentText() == "Vector 2.0"
+    panel.compare_engines()
+    wait_until(qapp, lambda: panel.job is None)
+    assert "OLD:" in panel.vector_stats.text() and "V2:" in panel.vector_stats.text()
+    panel.prepare_simulation()
+    wait_until(qapp, lambda: panel.job is None)
+    assert len(panel._simulation_frames) > 1
+    assert np.any(np.asarray(panel._simulation_frames[-1]) < 240)
+    panel._simulation_timer.stop()
+    saved_plan = panel.store.save_plan(panel.plan)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **kw: (str(saved_plan), "JSON"))
+    panel.load_plan()
+    wait_until(qapp, lambda: panel.job is None)
+    assert panel.plan.canvas_size == (120, 160) and panel.plan.engine == "Vector 2.0"
     panel.plan.timing = Timing(.00001, .00001, 1000000, 50)
     panel.run_plan()
     wait_until(qapp, lambda: panel.job is None and not panel._pending_run)

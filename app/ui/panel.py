@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import time
+from dataclasses import replace
 
 import numpy as np
 from PIL import Image
@@ -22,9 +24,10 @@ from app.models import Plan, Rect, Stroke, Timing, estimate_plan
 from app.planner import PlanOptions, build_plan, render_plan, render_placement
 from app.storage import Store
 from app.ui.calibration import CalibrationDialog, ClickImage
-from app.ui.common import Job, Preview, STYLE, fit_window
+from app.ui.common import Job, Preview, STYLE, fit_window, LogView
 from app.ui.floating import FloatingIcon
 from app.ui.test_canvas import QtCanvasBackend, TestCanvas
+from app.ui.intelligence import StudioActions
 
 
 class DrawJob(Job):
@@ -53,7 +56,7 @@ class DebugOverlay(QWidget):
             p.drawEllipse(QPoint(x, y), 6, 6)
 
 
-class MainWindow(QMainWindow):
+class MainWindow(StudioActions, QMainWindow):
     hotkey_pause = Signal()
     hotkey_stop = Signal()
 
@@ -62,7 +65,7 @@ class MainWindow(QMainWindow):
         self.store = store or Store()
         self.settings = self.store.settings()
         self.profiles = self.store.profiles()
-        self.setWindowTitle("ANIME DRAWER · TURBO + SIZE")
+        self.setWindowTitle("ANIME DRAWER 2.0 · CREATIVE STUDIO")
         self.setStyleSheet(STYLE)
         self.setWindowOpacity(.98)
         self.setAcceptDrops(True)
@@ -83,8 +86,9 @@ class MainWindow(QMainWindow):
         self._pending_run = False
         self._pending_capture = False
         self._state = "IDLE"
+        self.init_studio()
         self._build_ui()
-        fit_window(self, 620, 840)
+        fit_window(self, 1320, 860)
         self._loading = True
         for key, control in [("draw_style", self.style), ("draw_quality", self.quality),
                              ("draw_speed", self.speed), ("draw_limit", self.limit), ("draw_brushwork", self.brushwork),
@@ -96,12 +100,16 @@ class MainWindow(QMainWindow):
         self.drawing_width.setValue(int(self.settings.get("draw_width", 300)))
         self.drawing_height.setValue(int(self.settings.get("draw_height", 300)))
         self._format_changed()
+        self.restore_studio()
         self._loading = False
         self.icon = FloatingIcon()
-        self.icon.opened.connect(self.toggle)
+        self.icon.opened.connect(self.open_panel)
         self.icon.quit_requested.connect(self.quit_app)
         self.icon.moved.connect(self.remember_icon)
         self.icon.opacity_changed.connect(lambda value: self.save_setting("icon_opacity", value))
+        if hasattr(self.icon, "pause_requested"):
+            self.icon.pause_requested.connect(self.pause)
+            self.icon.stop_requested.connect(self.stop)
         self.icon.setWindowOpacity(self.settings.get("icon_opacity", .86))
         screens = QApplication.screens()
         point = QPoint(*self.settings.get("icon_position", [40, 120]))
@@ -216,6 +224,7 @@ class MainWindow(QMainWindow):
                 self.actions[label] = tools_menu.addAction(label, function)
         outer.addLayout(grid)
         tools_button = QPushButton("TOOLS  ▾   /   LOCAL CANVAS · AI · CROP · CACHE · DEBUG")
+        self.tools_button = tools_button
         tools_button.setMenu(tools_menu)
         outer.addWidget(tools_button)
         self.previews = QTabWidget()
@@ -230,7 +239,7 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         outer.addWidget(self.progress)
-        self.log = QLabel("Начинайте с пустого белого холста и непрозрачности кисти 100%.")
+        self.log = LogView("Начинайте с пустого белого холста и непрозрачности кисти 100%.")
         self.log.setWordWrap(True)
         self.log.setObjectName("muted")
         self.log.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -276,6 +285,8 @@ class MainWindow(QMainWindow):
         self.crop_fit.toggled.connect(self.invalidate_plan)
         self.remove_bg.toggled.connect(self.invalidate_plan)
         self.profile_combo.currentTextChanged.connect(self.select_profile)
+        from app.ui.studio import build_studio
+        build_studio(self)
 
     def start_hotkeys(self):
         if os.name == "nt":
@@ -313,6 +324,15 @@ class MainWindow(QMainWindow):
             self.raise_()
             self.activateWindow()
 
+    def open_panel(self):
+        if self.executor:
+            self.executor.pause()
+        if hasattr(self.icon, "popup"):
+            self.icon.popup.hide()
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
     def set_state(self, state):
         self._state = state
         self.status.setText("●  " + state)
@@ -341,6 +361,8 @@ class MainWindow(QMainWindow):
         self.job = job
         for action in self.actions.values():
             action.setEnabled(False)
+        for control in self._advanced_controls:
+            control.setEnabled(False)
         for control in [self.source, self.quality, self.speed, self.style, self.profile_combo,
                         self.crop_fit, self.remove_bg, self.limit, self.brushwork,
                         self.drawing_format, self.drawing_scale, self.drawing_width, self.drawing_height]:
@@ -361,8 +383,14 @@ class MainWindow(QMainWindow):
         previous = self.job
         self.job = None
         self.executor = None
+        if getattr(self, "_reset_on_finish", False):
+            self._round_clock = self._last_clock = self._last_eta = None
+            self._reset_on_finish = False
         for action in self.actions.values():
             action.setEnabled(True)
+        for control in self._advanced_controls:
+            control.setEnabled(True)
+        self.custom_time.setEnabled(self.limit.currentData() == "custom")
         for control in [self.source, self.quality, self.speed, self.style, self.profile_combo,
                         self.crop_fit, self.remove_bg, self.limit, self.brushwork,
                         self.drawing_format, self.drawing_scale, self.drawing_width, self.drawing_height]:
@@ -370,13 +398,15 @@ class MainWindow(QMainWindow):
         self._update_size_controls()
         self.run_button.setEnabled(True)
         self.progress.setRange(0, 100)
-        if self._state in {"PROCESSING", "GENERATING"}:
+        if self._state in {"PROCESSING", "GENERATING", "ANALYZING", "COMPARING", "SIMULATING", "LOADING"}:
             self.set_state("IDLE")
         self.icon.show()
         if previous:
             previous.deleteLater()
         if self._closing:
             QTimer.singleShot(0, self.quit_app)
+        elif self._analysis_pending:
+            self._analysis_timer.start(0)
 
     def job_progress(self, fraction, text):
         self.progress.setRange(0, 100)
@@ -393,7 +423,10 @@ class MainWindow(QMainWindow):
                                  draw_format=self.drawing_format.currentText(), draw_scale=self.drawing_scale.currentText(),
                                  draw_width=self.drawing_width.value(), draw_height=self.drawing_height.value(),
                                  draw_crop=self.crop_fit.isChecked(), draw_remove_bg=self.remove_bg.isChecked())
+            self.save_studio_options()
             self.store.save_settings(self.settings)
+            self._simulation_timer.stop()
+            self._simulation_frames = []
 
     def _update_size_controls(self):
         custom = self.drawing_format.currentText() == "Свой размер"
@@ -414,6 +447,7 @@ class MainWindow(QMainWindow):
         self.invalidate_plan()
         path = self.store.archive_image(self.original)
         self.store.record(kind, {"width": image.width, "height": image.height, "image": str(path)})
+        self.studio_image_changed(path)
         self.set_state("IDLE")
 
     def import_image(self):
@@ -567,11 +601,13 @@ class MainWindow(QMainWindow):
             self.debug.hide()
         self.hide()
         self.icon.hide()
+        if self.overlay_enabled.isChecked() and self.executor:
+            self.icon.show()
         if self.local_mode:
             self.local_canvas.show()
             self.local_canvas.raise_()
             self.local_canvas.activateWindow()
-        if os.name == "nt":
+        if os.name == "nt" and not (self.local_mode and not self.native_test):
             from app.windows import focus_window
             focus_window(self.target)
 
@@ -719,7 +755,9 @@ class MainWindow(QMainWindow):
             self.error(str(exc))
 
     def time_limit(self):
-        return [165, 60, 120, 165, None, 240, 300][self.limit.currentIndex()]
+        if self._round_clock is not None:
+            return self._round_clock.snapshot()["remaining"]
+        return self.configured_limit()
 
     def make_plan(self):
         if not self._require_free():
@@ -742,6 +780,11 @@ class MainWindow(QMainWindow):
             widths = tuple(w for w in widths if w < min(area.width, area.height)-4)
             if not widths:
                 raise ValueError("Для такого размера нет подходящей кисти. Увеличьте рисунок или добавьте тонкую кисть.")
+            widths = tuple(sorted(widths))
+            if self.brush_policy.currentText() == "Тонкая":
+                widths = widths[:min(2, len(widths))]
+            elif self.brush_policy.currentText() == "Средняя":
+                widths = widths[:len(widths)//2+1]
         except ValueError as exc:
             self.error(str(exc))
             return
@@ -751,23 +794,72 @@ class MainWindow(QMainWindow):
                               widths,
                               self.crop_fit.isChecked(), self.remove_bg.isChecked(),
                               *(selection_clicks(p) if p else (1, 1)),
-                              stroke_style="Shape" if self.brushwork.currentIndex() == 0 else "Scanline")
+                              stroke_style="Shape" if self.brushwork.currentIndex() == 0 else "Scanline",
+                              engine=self.engine.currentText(), detail_intelligence=self.intelligence.value(),
+                              priority_mode=self.priority_mode.currentText(), detect_faces=self.detect_faces.isChecked(),
+                              priority_regions=tuple(self.priority_regions), vector_accuracy=self.vector_accuracy.currentText(),
+                              safety_buffer=self.safety_buffer.value(), smart_finish=self.smart_finish.isChecked())
+        from app.smart_timer import learned_factor, performance_key
+        if p:
+            options.time_factor, options.measured_runs = learned_factor(self.store.performance(),
+                                                                       performance_key(p, Timing.preset(options.speed)))
+        self._last_options = options
+        self._analysis_pending = False
+        self._analysis_timer.stop()
+        from dataclasses import asdict
+        request = json.dumps([self._source_key, asdict(options), area.__dict__, target_size], sort_keys=True)
+        if request == getattr(self, "_cached_request", None):
+            self._plan_ready(self._cached_result)
+            self.log.setText("Использован кэш: изображение и влияющие на план настройки не изменились.\n"+
+                             "\n".join(self.plan.notes))
+            return
         original = self.original.copy()
         self.set_state("PROCESSING")
         def process(job):
+            from app.priority import analyze, heatmap
+            from app.vector import vector_preview
             plan, processed = build_plan(original, options, job.progress.emit, job.cancel)
             if (area.width, area.height) != target_size:
                 plan.drawing_rect = area
                 plan.target_canvas_size = target_size
                 plan.notes.append(f"Рисунок {area.width}×{area.height} по центру холста {target_size[0]}×{target_size[1]}.")
-            return plan, processed, render_placement(plan)
-        self._start_job(Job(process, self), self._plan_ready)
+            analysis = analyze(original, options.priority_mode, options.detect_faces, options.priority_regions)
+            plan._priority_ui = analysis, heatmap(original, analysis.scores if options.detail_intelligence else np.full_like(analysis.scores, 50))
+            plan._vector_ui = vector_preview(plan), vector_preview(plan, order=True)
+            from app.vector import path_metrics
+            plan._ui_metrics = path_metrics(plan.strokes, plan.canvas_size)
+            preview = render_placement(plan)
+            before = Image.new("RGB", preview.size, "white")
+            from app.imaging import prepare
+            before.paste(prepare(original, plan.canvas_size, options.crop, "Custom"),
+                         (area.x, area.y) if plan.drawing_rect else (0, 0))
+            after = preview.copy()
+            after.thumbnail((1000, 1000))
+            plan._comparison_output = after
+            plan._comparison_original = before.resize(after.size, Image.Resampling.LANCZOS)
+            return plan, processed, preview
+        def ready(result):
+            self._cached_request, self._cached_result = request, result
+            self._plan_ready(result)
+        self._start_job(Job(process, self), ready)
 
     def _plan_ready(self, result):
         self.plan, self.processed, preview = result
         self.processed_view.set_image(self.processed)
         self.draw_view.set_image(preview)
         self.previews.setCurrentIndex(2)
+        if hasattr(self.plan, "_priority_ui"):
+            self.apply_analysis(self.plan._priority_ui)
+        if hasattr(self.plan, "_vector_ui"):
+            self.vector_view.set_image(self.plan._vector_ui[0])
+            self.order_view.set_image(self.plan._vector_ui[1])
+        from app.vector import path_metrics
+        metrics = (self.plan._ui_metrics if hasattr(self.plan, "_ui_metrics") else
+                   path_metrics(self.plan.strokes, self.plan.canvas_size))
+        self.vector_stats.setText(f"{self.plan.engine} · {metrics['strokes']} штрихов · {metrics['points']} точек\n"
+                                  f"Рисование {metrics['draw_length']:.0f} px · переходы {metrics['travel_length']:.0f} px\n"
+                                  f"Оценка {self.plan.estimated_seconds:.1f} s\n"
+                                  f"Допуск контуров {self.plan.metrics.get('contour_error_bound', 0):.2f} px")
         self.stats.setText(f"Рисунок {self.plan.canvas_size[0]}×{self.plan.canvas_size[1]} px · "
                            f"{len(self.plan.strokes)} штрихов · {len(self.plan.palette)} цветов · "
                            f"оценка {self.plan.estimated_seconds:.1f} с (зависит от игры)")
@@ -805,16 +897,30 @@ class MainWindow(QMainWindow):
             return
         path, _ = QFileDialog.getOpenFileName(self, "Открыть план", str(self.store.root / "plans"), "JSON (*.json)")
         if path:
-            try:
+            def process(job):
+                from app.vector import vector_preview, path_metrics
                 plan = self.store.load_plan(path)
+                if job.cancel.is_set():
+                    raise InterruptedError()
+                plan._vector_ui = vector_preview(plan), vector_preview(plan, order=True)
+                plan._ui_metrics = path_metrics(plan.strokes, plan.canvas_size)
+                return plan, render_placement(plan)
+            def ready(result):
+                plan, preview = result
                 self.plan = plan
-                self.draw_view.set_image(render_placement(plan))
+                self._last_options = None
+                self._simulation_frames = []
+                self.draw_view.set_image(preview)
+                self.vector_view.set_image(plan._vector_ui[0])
+                self.order_view.set_image(plan._vector_ui[1])
                 self.previews.setCurrentIndex(2)
                 self.stats.setText(f"Кэш: {plan.canvas_size[0]}×{plan.canvas_size[1]} px · "
                                    f"{len(plan.strokes)} штрихов · {plan.estimated_seconds:.1f} с")
-                self.log.setText("План загружен. RUN проверит соответствие текущей калибровке.")
-            except Exception as exc:
-                self.error(str(exc))
+                self.log.setText(f"Загружен план {plan.engine}; используются параметры файла. "
+                                 "RUN проверит калибровку. Для новых настроек нажмите PREVIEW с исходником.")
+                self.set_state("IDLE")
+            self.set_state("LOADING")
+            self._start_job(Job(process, self), ready)
 
     def _backend(self):
         if self.local_mode and not self.native_test:
@@ -836,8 +942,8 @@ class MainWindow(QMainWindow):
             color_clicks, brush_clicks = selection_clicks(self.profile)
             self.plan.color_clicks, self.plan.brush_clicks = color_clicks, brush_clicks
             self.plan.estimated_seconds = estimate_plan(self.plan.strokes, self.plan.canvas_size, self.plan.timing,
-                                                        color_clicks, brush_clicks)
-            if limit is not None and self.plan.estimated_seconds > limit:
+                                                        color_clicks, brush_clicks)*self.plan.time_factor
+            if limit is not None and self.plan.estimated_seconds > max(0, limit-self.plan.safety_buffer):
                 raise ValueError("Оценка времени превышает лимит. Увеличьте TIME LIMIT или упростите изображение.")
             if self._get_target() is None:
                 return
@@ -926,6 +1032,12 @@ class MainWindow(QMainWindow):
             self.error(str(exc))
 
     def _begin_draw(self, executor, plan, limit, test):
+        self._begin_timestamp = time.monotonic()
+        self._draw_deadline = (self._round_clock.started+self._round_clock.limit
+                               if self._round_clock is not None and self._round_clock.limit is not None else
+                               self._begin_timestamp+limit if limit is not None else None)
+        self._simulation_timer.stop()
+        self._analysis_timer.stop()
         self.executor = executor
         self._pending_run = True
         try:
@@ -946,12 +1058,24 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(0, self.quit_app)
             return
         try:
+            if limit is not None:
+                limit = (self._round_clock.snapshot()["remaining"] if self._round_clock is not None else
+                         max(0., limit-(time.monotonic()-self._begin_timestamp)))
+                if limit <= plan.safety_buffer:
+                    raise SafetyError("До дедлайна слишком мало времени. Синхронизируйте таймер или уменьшите рисунок.")
             snapshot = self._screenshot(self._get_target())
             if not blank_white_canvas(snapshot, self.profile.canvas):
                 raise SafetyError("Холст уже закрашен или не белый. Очистите его в игре перед TEST DRAW / RUN. "
                                   "Белые области плана рассчитаны на пустой белый фон.")
             before = snapshot if test else None
-            job = DrawJob(lambda j: executor.run(plan, j.stats.emit, j.state.emit, limit, not test), self)
+            def execute(job):
+                outcome = executor.run(plan, job.stats.emit, job.state.emit, limit, not test,
+                                       deadline=self._draw_deadline, clock_origin=self._begin_timestamp)
+                if not test:
+                    actual = replace(plan, strokes=[plan.strokes[i] for i in executor.executed_indices])
+                    executor._archive_path = self.store.archive_image(render_plan(actual))
+                return outcome
+            job = DrawJob(execute, self)
             job.stats.connect(self.live_stats)
             job.state.connect(self.set_state)
             if test:
@@ -1018,14 +1142,26 @@ class MainWindow(QMainWindow):
             self.error(str(exc))
 
     def _draw_finished(self, outcome, plan, completed):
-        image = self.store.archive_image(render_plan(plan))
+        executor = self.executor
+        indices = executor.executed_indices if executor else list(range(completed))
+        image = (executor._archive_path if executor and hasattr(executor, "_archive_path") else
+                 self.store.archive_image(render_plan(replace(plan, strokes=[plan.strokes[i] for i in indices]))))
+        if executor:
+            from app.smart_timer import performance_key
+            self.store.record_performance(performance_key(self.profile, plan.timing), executor.run_metrics)
+            self._last_clock = {**executor.run_metrics, "progress": len(indices)/max(1, len(plan.strokes))}
+        self._last_eta = 0 if outcome == "finished" else None
+        self._round_clock = None
         self.store.record("draw", {"source_hash": plan.source_hash, "outcome": outcome,
-                                  "completed": completed, "total": len(plan.strokes),
-                                  "image": str(image), "preview_only": outcome != "finished"})
+                                  "completed": len(indices), "total": len(plan.strokes),
+                                  "metrics": executor.run_metrics if executor else {},
+                                  "image": str(image), "preview_only": True})
         self.showNormal()
-        self.log.setText(f"{'Завершено' if outcome == 'finished' else 'Остановлено'}: {completed}/{len(plan.strokes)} штрихов.")
+        self.log.setText(f"{'Завершено' if outcome == 'finished' else 'Частичный результат / остановлено'}: "
+                         f"{len(indices)}/{len(plan.strokes)} штрихов. История содержит симуляцию выполненных штрихов.")
 
     def live_stats(self, done, total, elapsed, remaining):
+        self._last_eta = remaining
         self.progress.setRange(0, 100)
         self.progress.setValue(round(100 * done / max(1, total)))
         self.stats.setText(f"{done}/{total} штрихов · прошло {elapsed:.1f} с · "
@@ -1076,7 +1212,8 @@ class MainWindow(QMainWindow):
         items = QListWidget()
         view = Preview()
         for record in records:
-            items.addItem(f"{record['at'][:19]} · {record['kind']} · {record.get('outcome', '')}")
+            suffix = " · симуляция" if record.get("preview_only") else ""
+            items.addItem(f"{record['at'][:19]} · {record['kind']} · {record.get('outcome', '')}"+suffix)
         def selected(index):
             if 0 <= index < len(records) and records[index].get("image"):
                 try:
@@ -1105,6 +1242,9 @@ class MainWindow(QMainWindow):
             return
         if self.hotkeys:
             self.hotkeys.close()
+        self._clock_timer.stop()
+        self._analysis_timer.stop()
+        self._simulation_timer.stop()
         self.icon.close()
         if self.local_canvas:
             self.local_canvas.close()
@@ -1118,3 +1258,25 @@ class MainWindow(QMainWindow):
             self.executor.pause()
         self.hide()
         event.ignore()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "navigation"):
+            compact = self.width() < 1050
+            self.workspace_tagline.setVisible(not compact)
+            self.navigation.setFixedWidth(54 if compact else 164)
+            self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            for index in range(self.navigation.count()):
+                item = self.navigation.item(index)
+                item.setText("" if compact else item.data(Qt.ItemDataRole.UserRole))
+            if getattr(self, "_compact_layout", None) != compact:
+                self._compact_layout = compact
+                QTimer.singleShot(0, self.rebalance_studio)
+
+    def rebalance_studio(self):
+        # QSplitter otherwise retains the old navigation allocation even after
+        # its child has collapsed to icon width. Rebalance after Qt's resize pass.
+        nav = 54 if self.width() < 1050 else 164
+        right = min(370, max(282, self.control_pages.width()))
+        center = max(200, self.workspace_splitter.width()-nav-right-10)
+        self.workspace_splitter.setSizes([nav, center, right])

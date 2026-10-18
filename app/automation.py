@@ -13,6 +13,10 @@ class SafetyError(RuntimeError):
     pass
 
 
+class DeadlineReached(SafetyError):
+    pass
+
+
 @dataclass(frozen=True)
 class WindowState:
     handle: int
@@ -52,6 +56,13 @@ class DrawingExecutor:
         self._tool_selected = False
         self._deadline = None
         self._pointer = None
+        self.clock = None
+        self.executed_indices = []
+        self.skipped_indices = []
+        self.run_metrics = dict(elapsed=0., active=0., paused=0., remaining=None, actual=0., predicted=0.,
+                                strokes=0, skipped=0, draw_seconds=0.)
+        self._pen_seconds = 0.
+        self._pen_started = None
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -59,17 +70,21 @@ class DrawingExecutor:
 
     def pause(self, value: bool = True) -> None:
         if value:
+            if self.clock:
+                self.clock.pause()
             self.pause_event.set()
             self._interrupted.set()
             self.backend.up()
         else:
+            if self.clock:
+                self.clock.resume()
             self.pause_event.clear()
 
     def _guard(self) -> WindowState:
         if self.stop_event.is_set():
             raise InterruptedError("Рисование остановлено")
         if self._deadline is not None and time.monotonic() >= self._deadline:
-            raise SafetyError("Достигнут лимит раунда. Рисование остановлено.")
+            raise DeadlineReached("Достигнут лимит раунда. Рисование остановлено.")
         state = self.backend.snapshot()
         p = self.profile
         if (state.client.width, state.client.height) != p.client_size or state.dpi != p.dpi:
@@ -84,8 +99,15 @@ class DrawingExecutor:
         return state
 
     def _wait(self, seconds: float) -> None:
+        if self._deadline is not None:
+            remaining = self._deadline-time.monotonic()
+            if remaining <= 0:
+                raise DeadlineReached("Достигнут лимит раунда. Рисование остановлено.")
+            seconds = min(seconds, remaining)
         if self.stop_event.wait(seconds):
             raise InterruptedError("Рисование остановлено")
+        if self._deadline is not None and time.monotonic() >= self._deadline:
+            raise DeadlineReached("Достигнут лимит раунда. Рисование остановлено.")
         if self.pause_event.is_set() or self._interrupted.is_set():
             raise _Paused()
 
@@ -320,14 +342,40 @@ class DrawingExecutor:
                 canvas.map(p, stroke.width / 2 + 1)
 
     def run(self, plan: Plan, progress=lambda *_: None, state=lambda *_: None,
-            time_limit: float | None = None, require_verified: bool = True) -> str:
+            time_limit: float | None = None, require_verified: bool = True,
+            deadline: float | None = None, clock_origin: float | None = None) -> str:
+        if self.stop_event.is_set():
+            self.backend.up()
+            state("IDLE")
+            return "stopped"
         self.validate_plan(plan, require_verified)
         self._deadline = None
         self._session = self._guard()
         self._color = self._width = None
         self._tool_selected = False
         started = time.monotonic()
-        self._deadline = started+time_limit if time_limit is not None else None
+        self._deadline = deadline if deadline is not None else (started+time_limit if time_limit is not None else None)
+        from app.smart_timer import DrawingClock, costs, transition_cost
+        self.clock = DrawingClock(None if self._deadline is None else max(0., self._deadline-started))
+        if clock_origin is not None:
+            self.clock.started = clock_origin
+            self.clock.limit = None if self._deadline is None else max(0., self._deadline-clock_origin)
+        prices = costs(plan)
+        suffix = [0.]*(len(prices)+1)
+        for index in range(len(prices)-1, -1, -1):
+            suffix[index] = suffix[index+1]+prices[index]
+        observed_factor = 1.
+        fill_groups = {}
+        for index, stroke in enumerate(plan.strokes):
+            if stroke.priority == 1:
+                fill_groups.setdefault((stroke.color, stroke.component_id), []).append(index)
+        fill_prices = {key: sum(prices[i] for i in indices) for key, indices in fill_groups.items()}
+        fill_scores = {key: sum(plan.strokes[i].importance for i in indices)/len(indices)
+                       for key, indices in fill_groups.items()}
+        started_fills, skipped_fills = set(), set()
+        future_skipped_price = 0.
+        measured_actual = measured_prediction = 0.
+        self.executed_indices, self.skipped_indices = [], []
         pause_seconds = 0.
         try:
             if not self.profile.color_tab:
@@ -339,10 +387,15 @@ class DrawingExecutor:
                     self.backend.up()
                     state("PAUSED")
                     pause_start = time.monotonic()
+                    if self.pause_event.is_set():
+                        self.clock.pause()
                     while self.pause_event.is_set():
+                        if self._deadline is not None and time.monotonic() >= self._deadline:
+                            raise DeadlineReached("Лимит раунда истёк во время паузы")
                         if self.stop_event.wait(.025):
                             raise InterruptedError("Рисование остановлено")
                     pause_seconds += time.monotonic() - pause_start
+                    self.clock.resume()
                     self._interrupted.clear()
                     # Never steal focus back on resume.
                     self._guard()
@@ -350,25 +403,80 @@ class DrawingExecutor:
                     self._tool_selected = False
                     state("DRAWING")
                 elapsed = time.monotonic() - started  # Round timer continues during pause.
-                if time_limit is not None and elapsed >= time_limit:
-                    raise SafetyError("Достигнут лимит раунда. Рисование остановлено.")
+                if self._deadline is not None and time.monotonic() >= self._deadline:
+                    raise DeadlineReached("Достигнут лимит раунда. Рисование остановлено.")
                 stroke = plan.strokes[self.completed]
+                fill_key = (stroke.color, stroke.component_id) if stroke.priority == 1 else None
+                if fill_key in skipped_fills:
+                    future_skipped_price -= prices[self.completed]
+                    self.skipped_indices.append(self.completed)
+                    self.completed += 1
+                    continue
+                previous = plan.strokes[self.executed_indices[-1]] if self.executed_indices else None
+                if previous is not None and (self._color != previous.color or self._width != previous.width):
+                    previous = None  # Resume resets the tool cache; include selection again.
+                current_price = transition_cost(plan, stroke, previous)
+                if plan.smart_finish and self._deadline is not None:
+                    available = self._deadline-time.monotonic()-plan.safety_buffer
+                    predicted = current_price*observed_factor
+                    low_priority = (stroke.priority != 1 and
+                                    (stroke.importance < 35 or (stroke.priority >= 2 and stroke.importance < 65)))
+                    remaining_price = max(0., suffix[self.completed]-future_skipped_price)*observed_factor
+                    if fill_key is not None and fill_key not in started_fills:
+                        whole_fill = (fill_prices[fill_key]+max(0, current_price-prices[self.completed]))*observed_factor
+                        secondary = fill_scores[fill_key] < 65
+                        if available < whole_fill or (secondary and available < remaining_price):
+                            state("SMART FINISH")
+                            if secondary:
+                                skipped_fills.add(fill_key)
+                                future_skipped_price += fill_prices[fill_key]-prices[self.completed]
+                                self.skipped_indices.append(self.completed)
+                                self.completed += 1
+                                continue
+                            state("TIME LIMIT")
+                            return "deadline"
+                    if available < predicted or (low_priority and available < remaining_price):
+                        state("SMART FINISH")
+                        if low_priority:
+                            self.skipped_indices.append(self.completed)
+                            self.completed += 1
+                            continue
+                        state("TIME LIMIT")
+                        return "deadline"
+                stroke_started = time.monotonic()
+                if fill_key is not None:
+                    started_fills.add(fill_key)  # A paused partial fill must be replayed, never silently dropped.
                 try:
                     self._execute(stroke, plan, started, time_limit)
                 except _Paused:
                     self.backend.up()
                     continue
+                duration = time.monotonic()-stroke_started
+                self.executed_indices.append(self.completed)
+                measured_actual += duration
+                measured_prediction += current_price/plan.time_factor
+                if current_price > .05:
+                    ratio = max(.25, min(4., duration/current_price))
+                    observed_factor = .8*observed_factor+.2*ratio
                 self.completed += 1
-                active = max(.001, elapsed - pause_seconds)
-                progress(self.completed, len(plan.strokes), elapsed,
-                         (len(plan.strokes) - self.completed) * active / self.completed)
-            state("FINISHED")
-            return "finished"
+                elapsed = time.monotonic()-started
+                progress(len(self.executed_indices), len(plan.strokes), elapsed,
+                         suffix[self.completed]*observed_factor)
+            state("FINISHED" if not self.skipped_indices else "FINISHED PARTIAL")
+            return "finished" if not self.skipped_indices else "partial"
+        except DeadlineReached:
+            if not plan.smart_finish:
+                raise
+            state("TIME LIMIT")
+            return "deadline"
         except InterruptedError:
             state("IDLE")
             return "stopped"
         finally:
             self.backend.up()
+            self.run_metrics = {**self.clock.snapshot(), "actual": measured_actual,
+                                "predicted": measured_prediction, "strokes": len(self.executed_indices),
+                                "skipped": len(self.skipped_indices), "draw_seconds": self._pen_seconds}
 
     def _execute(self, stroke: Stroke, plan: Plan, started: float,
                  time_limit: float | None) -> None:
@@ -411,20 +519,24 @@ class DrawingExecutor:
             self._wait(plan.timing.control_hold)
         self._guard()
         try:
+            self._pen_started = time.monotonic()
             self.backend.down()
             self._wait(plan.timing.event)
             for a, b in zip(points, points[1:]):
                 length = math.hypot(b[0] - a[0], b[1] - a[1])
                 steps = max(1, math.ceil(length / plan.timing.sample_pixels))
                 for i in range(1, steps + 1):
-                    if time_limit is not None and time.monotonic() - started >= time_limit:
-                        raise SafetyError("Достигнут лимит раунда")
+                    if self._deadline is not None and time.monotonic() >= self._deadline:
+                        raise DeadlineReached("Достигнут лимит раунда")
                     x = round(a[0] + (b[0] - a[0]) * i / steps)
                     y = round(a[1] + (b[1] - a[1]) * i / steps)
                     self._move(x, y)
                     self._wait(plan.timing.event + length / steps / plan.timing.pixels_per_second)
         finally:
             self.backend.up()
+            if self._pen_started is not None:
+                self._pen_seconds += time.monotonic()-self._pen_started
+                self._pen_started = None
 
     def _check_anchor(self, anchor) -> None:
         self._guard()

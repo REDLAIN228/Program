@@ -242,6 +242,8 @@ class Stroke:
     width: int
     opacity: float = 1.0
     priority: int = 0
+    importance: float = 50.0
+    component_id: int = -1
 
     def length(self, size: tuple[int, int]) -> float:
         w, h = size
@@ -271,6 +273,12 @@ class Plan:
     brush_clicks: int = 1
     drawing_rect: Rect | None = None  # Coordinates relative to the full canvas.
     target_canvas_size: tuple[int, int] | None = None
+    engine: str = "Legacy"
+    smart_finish: bool = False
+    safety_buffer: float = 0.0
+    time_factor: float = 1.0
+    metrics: dict = field(default_factory=dict)
+    analysis: dict = field(default_factory=dict)
 
     def drawing_area(self, canvas: Rect) -> Rect:
         if self.drawing_rect is None and self.target_canvas_size is None:
@@ -310,7 +318,13 @@ class Plan:
                 raise ValueError("Некорректный цвет")
             if not 1 <= s["width"] < min(size) or s.get("opacity", 1) != 1:
                 raise ValueError("Неподдерживаемая кисть или прозрачность")
-            strokes.append(Stroke(points, rgb, s["width"], 1.0, s.get("priority", 0)))
+            importance = s.get("importance", 50.)
+            if not math.isfinite(importance) or not 0 <= importance <= 100:
+                raise ValueError("Некорректный приоритет детали")
+            component = s.get("component_id", -1)
+            if type(component) is not int or not -1 <= component <= 2**31-1:
+                raise ValueError("Некорректная связная область штриха")
+            strokes.append(Stroke(points, rgb, s["width"], 1.0, s.get("priority", 0), importance, component))
         timing = Timing(**d["timing"])
         if any(not math.isfinite(v) or v <= 0 for v in asdict(timing).values()):
             raise ValueError("Некорректные интервалы")
@@ -322,7 +336,16 @@ class Plan:
                    [tuple(c) for c in d["palette"]], d.get("notes", []),
                    color_clicks=color_clicks, brush_clicks=brush_clicks,
                    drawing_rect=Rect(**d["drawing_rect"]) if d.get("drawing_rect") is not None else None,
-                   target_canvas_size=tuple(d["target_canvas_size"]) if d.get("target_canvas_size") is not None else None)
+                   target_canvas_size=tuple(d["target_canvas_size"]) if d.get("target_canvas_size") is not None else None,
+                   engine=d.get("engine", "Legacy"), smart_finish=bool(d.get("smart_finish", False)),
+                   safety_buffer=d.get("safety_buffer", 0.), time_factor=d.get("time_factor", 1.),
+                   metrics=d.get("metrics", {}), analysis=d.get("analysis", {}))
+        if (not math.isfinite(plan.time_factor) or not .1 <= plan.time_factor <= 20
+                or not math.isfinite(plan.safety_buffer) or not 0 <= plan.safety_buffer <= 60):
+            raise ValueError("Некорректная настройка таймера")
+        if plan.engine not in ("Legacy", "Vector 2.0") or not isinstance(plan.metrics, dict) or not isinstance(plan.analysis, dict):
+            raise ValueError("Некорректные данные движка или анализа")
+        plan.estimated_seconds *= plan.time_factor
         if plan.target_canvas_size is not None or plan.drawing_rect is not None:
             target = plan.target_canvas_size
             if (target is None or len(target) != 2 or any(type(n) is not int or not 32 <= n <= 8192 for n in target)):

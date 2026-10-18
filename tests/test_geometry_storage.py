@@ -59,6 +59,19 @@ def test_plan_rejects_nonfinite_timing_and_unsafe_strokes():
         Plan.from_dict(plan)
 
 
+def test_pre_v2_plan_fields_remain_optional():
+    data = Plan((300, 280), [Stroke(((.1, .1), (.9, .9)), (20, 20, 28), 3)],
+                Timing(), 1, "old", [(20, 20, 28)]).to_dict()
+    for key in ("engine", "smart_finish", "safety_buffer", "time_factor", "metrics", "analysis"):
+        data.pop(key)
+    for stroke in data["strokes"]:
+        stroke.pop("importance")
+        stroke.pop("component_id")
+    loaded = Plan.from_dict(data)
+    assert loaded.engine == "Legacy" and not loaded.smart_finish
+    assert loaded.strokes[0].importance == 50 and loaded.strokes[0].component_id == -1
+
+
 def test_letterbox_is_white_and_alpha_is_composited():
     image = Image.new("RGBA", (100, 50), (255, 0, 0, 255))
     prepared = prepare(image, (100, 100))

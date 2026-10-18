@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import math
 import threading
+import time
 
 import cv2
 import numpy as np
@@ -29,6 +30,16 @@ class PlanOptions:
     color_clicks: int = 1
     brush_clicks: int = 1
     stroke_style: str = "Shape"
+    engine: str = "Legacy"
+    detail_intelligence: int = 75
+    priority_mode: str = "Auto"
+    detect_faces: bool = True
+    priority_regions: tuple = ()
+    vector_accuracy: str = "Balanced"
+    safety_buffer: float = 8.
+    smart_finish: bool = True
+    time_factor: float = 1.
+    measured_runs: int = 0
 
 
 def rdp(points: np.ndarray, epsilon: float) -> np.ndarray:
@@ -126,7 +137,7 @@ def render_placement(plan: Plan) -> Image.Image:
     return image
 
 
-def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = lambda *_: None,
+def _build_legacy(image: Image.Image, options: PlanOptions, progress: Progress = lambda *_: None,
                cancel: threading.Event | None = None) -> tuple[Plan, Image.Image]:
     cancel = cancel or threading.Event()
     cw, ch = options.canvas_size
@@ -157,7 +168,7 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         w, h = max(16, round(cw * ratio)), max(16, round(ch * ratio))
         progress(attempt / 4, f"Сегментация: {w}×{h}")
         prepared = prepare(image, (w, h), options.crop, options.style, options.remove_background)
-        if not full_hd and (attempt or options.stroke_style == "Shape"):
+        if options.engine == "Legacy" and not full_hd and (attempt or options.stroke_style == "Shape"):
             prepared = Image.fromarray(cv2.medianBlur(np.asarray(prepared), 3))
         labels, palette = _quantize(prepared, options.palette, colors)
         # Simplify color segmentation at a coarse resolution, but never space fill
@@ -173,6 +184,8 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         w, h = fill_w, fill_h
         ratio_x, ratio_y = w / cw, h / ch
         ratio = min(ratio_x, ratio_y)
+        detail_map = (cv2.resize(options._priority_scores, (w, h))
+                      if hasattr(options, "_priority_scores") else None)
         strokes: list[Stroke] = []
         # Large color areas first, preserving contours for a separate last pass.
         color_ids = sorted(np.unique(labels).tolist(), key=lambda c: -int(np.count_nonzero(labels == c)))
@@ -185,7 +198,8 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
                 continue
             mask = (labels == color_id).astype(np.uint8) * 255
             if options.stroke_style == "Shape":
-                strokes.extend(shape_strokes(mask, color, widths, options.canvas_size, (ratio_x, ratio_y), cancel))
+                strokes.extend(shape_strokes(mask, color, widths, options.canvas_size, (ratio_x, ratio_y), cancel,
+                                             detail_map, options.vector_accuracy, options.detail_intelligence))
                 progress((attempt + .9*(idx + 1) / len(color_ids)) / 4, "Штрихи по форме областей")
                 continue
             covered = np.zeros((h, w), np.uint8)
@@ -282,3 +296,80 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         plan.notes.append(f"Детализация и палитра снижены на {selected_attempt} ступени для бюджета времени.")
     progress(1., "План готов")
     return plan, prepared
+
+
+def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = lambda *_: None,
+               cancel: threading.Event | None = None) -> tuple[Plan, Image.Image]:
+    """Preserve the public planning API and the explicit legacy comparison path."""
+    if options.engine == "Legacy":
+        return _build_legacy(image, options, progress, cancel)
+    if options.engine != "Vector 2.0":
+        raise ValueError("Неизвестный движок")
+    from app.priority import analyze, project_regions, simplify_background
+    from app.vector import optimize, merge_compatible
+    from app.smart_timer import fit_budget
+    pipeline_started = time.monotonic()
+    cancel = cancel or threading.Event()
+    if cancel.is_set():
+        raise InterruptedError("Обработка отменена")
+    if not 0 <= options.detail_intelligence <= 100:
+        raise ValueError("Detail Intelligence должен быть 0–100")
+    if not 0 <= options.safety_buffer <= 60 or not .1 <= options.time_factor <= 20:
+        raise ValueError("Некорректная настройка Smart Timer")
+    progress(.01, "Анализ значимости изображения")
+    analysis_image = prepare(image, options.canvas_size, options.crop, "Custom", options.remove_background)
+    regions = project_regions(options.priority_regions, image.size, options.canvas_size, options.crop)
+    analysis = analyze(analysis_image, options.priority_mode, options.detect_faces, regions)
+    scores = analysis.scores if options.detail_intelligence else np.full_like(analysis.scores, 50)
+    input_image = simplify_background(analysis_image, scores, options.detail_intelligence)
+    base_options = replace(options, crop=False, remove_background=False, time_limit=None)
+    base_options._priority_scores = scores
+    plan, processed = _build_legacy(input_image, base_options,
+                                     lambda value, label: progress(.08+value*.53, label), cancel)
+    progress(.63, "Адаптивные кривые Безье и безопасный порядок слоёв")
+    old_strokes = plan.strokes
+    strokes, metrics = optimize(old_strokes, plan.canvas_size, scores, options.vector_accuracy,
+                                options.detail_intelligence, cancel, plan.timing, plan.color_clicks, plan.brush_clicks)
+    # Check the actual raster after curve fitting too; a reduced point count is
+    # never accepted as proof that fill coverage survived the geometry change.
+    palette = list(dict.fromkeys(plan.palette+[(255, 255, 255)]))
+    labels, palette = _quantize(processed, palette, len(palette))
+    before_merge = len(strokes)
+    strokes = merge_compatible(strokes, labels, palette, plan.canvas_size, cancel)
+    repairs, uncovered = complete_coverage(strokes, labels, palette, options.brush_widths, plan.canvas_size, cancel)
+    if repairs:
+        repairs, _ = optimize(repairs, plan.canvas_size, scores, "Ultra", options.detail_intelligence, cancel,
+                              plan.timing, plan.color_clicks, plan.brush_clicks)
+        repairs = merge_compatible(repairs, labels, palette, plan.canvas_size, cancel)
+    plan.strokes = strokes+repairs
+    plan.source_hash = hashlib.sha256(image.convert("RGB").tobytes()+str(image.size).encode()).hexdigest()
+    plan.engine, plan.smart_finish = "Vector 2.0", options.smart_finish
+    plan.safety_buffer, plan.time_factor = options.safety_buffer, options.time_factor
+    plan.analysis = dict(method=analysis.method, regions=analysis.regions, mode=options.priority_mode)
+    metrics["unrefined_estimate"] = estimate_plan(old_strokes, plan.canvas_size, plan.timing,
+                                           plan.color_clicks, plan.brush_clicks)*options.time_factor
+    metrics["coverage_repairs"] = len(repairs)
+    metrics["merged_strokes"] = before_merge-len(strokes)
+    metrics["uncovered_pixels"] = uncovered
+    plan.metrics = metrics
+    plan.estimated_seconds = estimate_plan(plan.strokes, plan.canvas_size, plan.timing,
+                                           plan.color_clicks, plan.brush_clicks)*options.time_factor
+    plan.notes.append("Detail Priority: "+analysis.method)
+    plan.notes.append(f"Vector 2.0: допуск относительно базовых штрихов ≤{metrics['contour_error_bound']:.2f} px; "
+                      f"добавлено {len(repairs)} штрихов контроля покрытия.")
+    plan.notes.append(f"Оценка по {options.measured_runs} измеренным запускам (приблизительно)."
+                      if options.measured_runs else "Пока нет измерений этого профиля и скорости; оценка консервативная и приблизительная.")
+    progress(.9, "Распределение времени с сохранением приоритетов")
+    plan = fit_budget(plan, options.time_limit)
+    if options.quality == "Full HD" and options.time_limit is not None:
+        plan.notes = [note.replace("без автоматического снижения качества",
+                                   "без снижения разрешения сетки; бюджет может сокращать второстепенные штрихи")
+                      for note in plan.notes]
+    plan.metrics["new_estimate"] = plan.estimated_seconds
+    plan.metrics["pipeline_seconds"] = time.monotonic()-pipeline_started
+    # Comparison is generated on demand; store the unmodified stroke data in a
+    # separate UI result/cache rather than duplicating it in every JSON plan.
+    plan._reference_strokes = old_strokes
+    plan._priority_scores = scores
+    progress(1., "Vector Engine 2.0: план готов")
+    return plan, processed

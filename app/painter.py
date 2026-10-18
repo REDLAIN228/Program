@@ -9,7 +9,7 @@ from app.models import Rect, Stroke
 from app.raster import draw_stroke
 
 
-def shape_strokes(mask, color, widths, size, scale, cancel):
+def shape_strokes(mask, color, widths, size, scale, cancel, detail_map=None, accuracy="Balanced", intelligence=75):
     sx, sy = scale
     ratio = min(sx, sy)
     w, h = size
@@ -19,7 +19,15 @@ def shape_strokes(mask, color, widths, size, scale, cancel):
 
     def stroke(contour, brush, priority, closed=True):
         # A closed contour follows the object's shape, including the boundaries of holes.
-        line = cv2.approxPolyDP(contour, .35, closed).reshape(-1, 2)
+        epsilon = .35
+        if detail_map is not None:
+            raw = contour.reshape(-1, 2)
+            xx = np.clip(raw[:, 0]+left, 0, detail_map.shape[1]-1)
+            yy = np.clip(raw[:, 1]+top, 0, detail_map.shape[0]-1)
+            importance = float(np.percentile(detail_map[yy, xx], 80))
+            base = {"Speed": 1.25, "Balanced": .65, "Precision": .25, "Ultra": .08}[accuracy]
+            epsilon = max(.02, base*(1-.8*importance/100*intelligence/100)*ratio)
+        line = cv2.approxPolyDP(contour, epsilon, closed).reshape(-1, 2)
         if not len(line) or (len(line) < 2 and priority != 1):
             return
         if closed or len(line) == 1:
@@ -27,13 +35,15 @@ def shape_strokes(mask, color, widths, size, scale, cancel):
         margin = brush/2+1
         points = tuple((float(np.clip(((x+left)/sx-margin)/(w-1-2*margin), 0, 1)),
                         float(np.clip(((y+top)/sy-margin)/(h-1-2*margin), 0, 1))) for x, y in line)
-        output.append(Stroke(points, color, brush, priority=priority))
+        output.append(Stroke(points, color, brush, priority=priority, component_id=int(region)))
 
     for region in regions:
         if cancel.is_set():
             raise InterruptedError("Обработка отменена")
         left, top, region_w, region_h = stats[region, :4]
         component = (labels[top:top+region_h, left:left+region_w] == region).astype(np.uint8)*255
+        detail = (float(np.mean(detail_map[top:top+region_h, left:left+region_w][component > 0]))
+                  if detail_map is not None else 100.)
         boundary, _ = cv2.findContours(component, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         if stats[region, cv2.CC_STAT_AREA] >= max(40, 20*ratio*ratio):
             for contour in sorted(boundary, key=cv2.contourArea, reverse=True):
@@ -45,7 +55,11 @@ def shape_strokes(mask, color, widths, size, scale, cancel):
             # Keep previously painted pixels available as safe brush centers. Eroding only
             # the unpainted gaps would discard narrow gaps between two wide brush marks.
             core = cv2.erode(component, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
-            step = max(1, math.floor(brush*ratio*.65))
+            density = .65
+            if detail_map is not None:
+                base = {"Speed": .95, "Balanced": .85, "Precision": .75, "Ultra": .65}[accuracy]
+                density = base-(base-.65)*detail/100*intelligence/100
+            step = max(1, math.floor(brush*ratio*density))
             shrink = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*step+1, 2*step+1))
             coverage_radius = max(0, math.floor(brush*ratio/2-.5))
             footprint = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,

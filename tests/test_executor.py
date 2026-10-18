@@ -183,3 +183,69 @@ def test_custom_drawing_size_is_translated_to_canvas_center_and_stays_inside(pro
     with pytest.raises(SafetyError, match="границы"):
         DrawingExecutor(backend, profile).run(drawing)
     assert not backend.events
+
+
+def test_smart_finish_will_not_start_a_stroke_that_cannot_fit(profile):
+    backend = Backend()
+    drawing = plan()
+    drawing.smart_finish = True
+    executor = DrawingExecutor(backend, profile)
+    assert executor.run(drawing, time_limit=.0001) == "deadline"
+    assert not any(event[0] == "down" for event in backend.events)
+    assert not backend.pressed
+
+
+def test_smart_finish_skips_secondary_work_and_reports_actual_completed_strokes(profile, monkeypatch):
+    wait = DrawingExecutor._wait
+    monkeypatch.setattr(DrawingExecutor, "_wait", lambda self, seconds: wait(self, 0))
+    backend = Backend()
+    low = Stroke(((.05, .1), (.95, .9)), (20, 20, 28), 3, priority=3, importance=10)
+    high = Stroke(((.5, .5), (.51, .5)), (20, 20, 28), 3, priority=3, importance=100)
+    drawing = Plan((300, 280), [low, high], Timing(.01, .01, 1000000, 10), 1, "x", [], smart_finish=True)
+    executor = DrawingExecutor(backend, profile)
+    assert executor.run(drawing, time_limit=.2) == "partial"
+    assert executor.executed_indices == [1] and executor.skipped_indices == [0]
+    assert executor.run_metrics["strokes"] == 1
+    assert executor.run_metrics["predicted"] > 0 and not backend.pressed
+
+
+def test_smart_finish_reserves_a_whole_fill_before_starting_it(profile, monkeypatch):
+    wait = DrawingExecutor._wait
+    monkeypatch.setattr(DrawingExecutor, "_wait", lambda self, seconds: wait(self, 0))
+    backend = Backend()
+    fills = [Stroke(((.5, y), (.51, y)), (20, 20, 28), 3, priority=1, importance=20, component_id=7)
+             for y in (.2, .3)]
+    face = Stroke(((.5, .5), (.51, .5)), (20, 20, 28), 3, priority=2, importance=100)
+    drawing = Plan((300, 280), fills+[face], Timing(.01, .01, 1000000, 10), 1, "x", [], smart_finish=True)
+    executor = DrawingExecutor(backend, profile)
+    assert executor.run(drawing, time_limit=.18) == "partial"
+    assert executor.executed_indices == [2] and executor.skipped_indices == [0, 1]
+
+
+def test_absolute_round_deadline_overrides_a_stale_relative_limit(profile):
+    backend = Backend()
+    drawing = plan()
+    drawing.smart_finish = True
+    now = time.monotonic()
+    executor = DrawingExecutor(backend, profile)
+    assert executor.run(drawing, time_limit=1000, deadline=now-1, clock_origin=now-5) == "deadline"
+    assert executor.run_metrics["elapsed"] >= 5 and executor.run_metrics["remaining"] == 0
+    assert not any(e[0] == "down" for e in backend.events)
+
+
+def test_paused_executor_observes_deadline_without_waiting_for_resume(profile, monkeypatch):
+    from types import SimpleNamespace
+    import app.automation as automation
+    ticks = [0.]
+    def monotonic():
+        ticks[0] += .01
+        return ticks[0]
+    monkeypatch.setattr(automation, "time", SimpleNamespace(monotonic=monotonic))
+    backend = Backend()
+    drawing = plan()
+    drawing.smart_finish = True
+    executor = DrawingExecutor(backend, profile)
+    executor.pause()
+    monkeypatch.setattr(executor.stop_event, "wait", lambda seconds: False)
+    assert executor.run(drawing, time_limit=.05) == "deadline"
+    assert not backend.pressed and not any(e[0] == "down" for e in backend.events)

@@ -1,0 +1,226 @@
+{
+  "scope": "CPU planning and app-local Qt event delivery only; no Roblox or SendInput validation",
+  "local_timing": "event=.0001s, settle=.0001s, 1e6 px/s, samples=40px; accelerated app-local test only",
+  "metric_note": "Full-frame metrics include the executor's required unpainted safety inset. Interior agreement excludes 4px on each side. The actual local canvas supports 3/9/18px brushes, so 1px text cannot be reproduced exactly.",
+  "cases": {
+    "portrait": {
+      "Legacy": {
+        "strokes": 80,
+        "points": 1792,
+        "draw_length": 4778.100393151288,
+        "travel_length": 1972.3298214673996,
+        "plan_seconds": 0.027915317001315998,
+        "estimated_seconds_at_Normal": 40.93655050236,
+        "preview_accuracy": {
+          "pixel_agreement": 0.9560546875,
+          "interior_pixel_agreement": 0.95,
+          "important_agreement": 0.6116504854368932,
+          "edge_distance_mean": 0.8887773156166077,
+          "edge_distance_max": 1.3693000078201294
+        },
+        "local_execution_seconds": 5.1270383760020195,
+        "local_accuracy": {
+          "pixel_agreement": 0.9443359375,
+          "interior_pixel_agreement": 0.9366666666666666,
+          "important_agreement": 0.6019417475728155,
+          "edge_distance_mean": 0.9444094896316528,
+          "edge_distance_max": 3.819999933242798
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1792
+      },
+      "Vector 2.0": {
+        "strokes": 132,
+        "points": 2311,
+        "draw_length": 5359.975680300751,
+        "travel_length": 1721.2705310583115,
+        "plan_seconds": 0.09819415699894307,
+        "estimated_seconds_at_Normal": 50.23605781371773,
+        "preview_accuracy": {
+          "pixel_agreement": 0.955322265625,
+          "interior_pixel_agreement": 0.9491666666666667,
+          "important_agreement": 0.6051779935275081,
+          "edge_distance_mean": 0.8993123769760132,
+          "edge_distance_max": 1.3693000078201294
+        },
+        "local_execution_seconds": 6.501861448999989,
+        "local_accuracy": {
+          "pixel_agreement": 0.95147705078125,
+          "interior_pixel_agreement": 0.9447916666666667,
+          "important_agreement": 0.6467098166127292,
+          "edge_distance_mean": 0.9806913733482361,
+          "edge_distance_max": 3.819999933242798
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 2311
+      },
+      "time_budget_v2": {
+        "limit_seconds": 48.93655050236,
+        "safety_buffer": 8.0,
+        "estimated_seconds": 38.80248937052766,
+        "strokes": 118,
+        "feasible": true,
+        "preview_accuracy": {
+          "pixel_agreement": 0.94873046875,
+          "interior_pixel_agreement": 0.9416666666666667,
+          "important_agreement": 0.5469255663430421,
+          "edge_distance_mean": 1.0179873704910278,
+          "edge_distance_max": 1.3693000078201294
+        },
+        "scope": "CPU plan only; not executed in the local benchmark"
+      }
+    },
+    "landscape": {
+      "Legacy": {
+        "strokes": 113,
+        "points": 1372,
+        "draw_length": 6563.989008119489,
+        "travel_length": 4985.600572228432,
+        "plan_seconds": 0.019159375999151962,
+        "estimated_seconds_at_Normal": 48.697119288152685,
+        "preview_accuracy": {
+          "pixel_agreement": 0.93817138671875,
+          "interior_pixel_agreement": 0.9716666666666667,
+          "important_agreement": 0.6620959843290891,
+          "edge_distance_mean": 8.521223068237305,
+          "edge_distance_max": 48.051918029785156
+        },
+        "local_execution_seconds": 4.480028276000667,
+        "local_accuracy": {
+          "pixel_agreement": 0.9429931640625,
+          "interior_pixel_agreement": 0.9726388888888889,
+          "important_agreement": 0.6219392752203722,
+          "edge_distance_mean": 4.85306978225708,
+          "edge_distance_max": 49.29481887817383
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1419
+      },
+      "Vector 2.0": {
+        "strokes": 141,
+        "points": 1602,
+        "draw_length": 8231.339681314877,
+        "travel_length": 4297.719292640686,
+        "plan_seconds": 0.07497304599746712,
+        "estimated_seconds_at_Normal": 59.23182292612459,
+        "preview_accuracy": {
+          "pixel_agreement": 0.93768310546875,
+          "interior_pixel_agreement": 0.97125,
+          "important_agreement": 0.6562193927522038,
+          "edge_distance_mean": 8.517315864562988,
+          "edge_distance_max": 48.051918029785156
+        },
+        "local_execution_seconds": 5.2852967779981554,
+        "local_accuracy": {
+          "pixel_agreement": 0.9482421875,
+          "interior_pixel_agreement": 0.9785416666666666,
+          "important_agreement": 0.6699314397649363,
+          "edge_distance_mean": 4.916581153869629,
+          "edge_distance_max": 49.29481887817383
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1661
+      },
+      "time_budget_v2": {
+        "limit_seconds": 56.697119288152685,
+        "safety_buffer": 8.0,
+        "estimated_seconds": 47.50132321864012,
+        "strokes": 131,
+        "feasible": true,
+        "preview_accuracy": {
+          "pixel_agreement": 0.93060302734375,
+          "interior_pixel_agreement": 0.9631944444444445,
+          "important_agreement": 0.5426052889324192,
+          "edge_distance_mean": 8.61559009552002,
+          "edge_distance_max": 48.051918029785156
+        },
+        "scope": "CPU plan only; not executed in the local benchmark"
+      }
+    },
+    "texture_text": {
+      "Legacy": {
+        "strokes": 55,
+        "points": 1789,
+        "draw_length": 4212.377078014716,
+        "travel_length": 2900.0038189888,
+        "plan_seconds": 0.018400509001367027,
+        "estimated_seconds_at_Normal": 36.29448182190772,
+        "preview_accuracy": {
+          "pixel_agreement": 0.83013916015625,
+          "interior_pixel_agreement": 0.8152777777777778,
+          "important_agreement": 0.5066690699351117,
+          "edge_distance_mean": 1.0559923648834229,
+          "edge_distance_max": 3.6935999393463135
+        },
+        "local_execution_seconds": 5.133490190997691,
+        "local_accuracy": {
+          "pixel_agreement": 0.793212890625,
+          "interior_pixel_agreement": 0.7739583333333333,
+          "important_agreement": 0.5104542177361211,
+          "edge_distance_mean": 1.124780297279358,
+          "edge_distance_max": 2.865000009536743
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1789
+      },
+      "Vector 2.0": {
+        "strokes": 73,
+        "points": 2132,
+        "draw_length": 4345.896601166479,
+        "travel_length": 2260.8873057365417,
+        "plan_seconds": 0.11739883100017323,
+        "estimated_seconds_at_Normal": 42.09549010149049,
+        "preview_accuracy": {
+          "pixel_agreement": 0.82257080078125,
+          "interior_pixel_agreement": 0.8069444444444445,
+          "important_agreement": 0.4850396539293439,
+          "edge_distance_mean": 1.0592617988586426,
+          "edge_distance_max": 2.865000009536743
+        },
+        "local_execution_seconds": 6.117832421001367,
+        "local_accuracy": {
+          "pixel_agreement": 0.77886962890625,
+          "interior_pixel_agreement": 0.7580555555555556,
+          "important_agreement": 0.48738284066330206,
+          "edge_distance_mean": 1.1812546253204346,
+          "edge_distance_max": 3.6935999393463135
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 2132
+      },
+      "time_budget_v2": {
+        "limit_seconds": 44.29448182190772,
+        "safety_buffer": 8.0,
+        "estimated_seconds": 35.835165803417205,
+        "strokes": 70,
+        "feasible": true,
+        "preview_accuracy": {
+          "pixel_agreement": 0.82012939453125,
+          "interior_pixel_agreement": 0.8041666666666667,
+          "important_agreement": 0.4859408795962509,
+          "edge_distance_mean": 1.2840869426727295,
+          "edge_distance_max": 8.595000267028809
+        },
+        "scope": "CPU plan only; not executed in the local benchmark"
+      }
+    }
+  }
+}

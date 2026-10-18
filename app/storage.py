@@ -106,3 +106,20 @@ class Store:
         history = json.loads(path.read_text("utf-8")) if path.exists() else []
         history.append({"at": datetime.now(timezone.utc).isoformat(), "kind": kind, **info})
         write_json(path, history[-200:])
+
+    def performance(self):
+        path = self.root/"performance.json"
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text("utf-8"))
+        except (ValueError, OSError):
+            return []
+        return data if isinstance(data, list) else []
+
+    def record_performance(self, key, metrics):
+        if metrics.get("strokes", 0) < 3 or metrics.get("predicted", 0) <= .05:
+            return
+        records = self.performance()
+        records.append({"key": key, **metrics})
+        write_json(self.root/"performance.json", records[-200:])
