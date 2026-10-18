@@ -75,10 +75,10 @@ class DrawingExecutor:
         self.backend.up()
         self._released_at = time.monotonic()
 
-    def _press(self):
+    def _press(self, kind="control"):
         self._guard()
         cursor = getattr(self.backend, "cursor_position", None)
-        self._control_log = (self._control_log+[dict(wanted=self._pointer, actual=cursor() if cursor else None,
+        self._control_log = (self._control_log+[dict(kind=kind, wanted=self._pointer, actual=cursor() if cursor else None,
                                                    latency=self._latency)])[-64:]
         down_at = getattr(self.backend, "down_at", None)
         if down_at and self._pointer is not None:
@@ -788,6 +788,47 @@ class DrawingExecutor:
             self._wait(max(.05 if matches else .12, plan.timing.event))
         return False
 
+    @staticmethod
+    def _toward(start, end, distance):
+        length = math.dist(start, end)
+        fraction = min(1., distance/length)
+        return tuple(round(a+(b-a)*fraction) for a, b in zip(start, end))
+
+    def _enter_stroke(self, points, plan):
+        """Prime the game's cached pointer along the stroke, with the pen up.
+
+        An OS cursor check cannot detect a game retaining the previous move.
+        Make the last distinct moves belong to the first segment, so a cached
+        point cannot connect the UI-to-canvas approach to the painted line.
+        """
+        start = points[0]
+        following = next((point for point in points[1:] if point != start), None)
+        if following is None:
+            self._travel(*start, plan)
+        else:
+            lead = self._toward(start, following, 8)
+            middle = self._toward(start, following, 4)
+            path = [lead, middle, start]
+            if lead == middle or middle == start:
+                # A one-pixel segment has only two distinct valid positions.
+                path = [following, start, following, start]
+            self._travel(*path[0], plan)
+            for point in path[1:]:
+                self._move(*point)
+                self._wait(plan.timing.pen_refresh)
+        self._arrive(start, plan, pen_start=True)
+
+    def _finish_stroke(self, points, plan):
+        # A game painting the previous move also needs the endpoint flushed.
+        # Retrace only the last two pixels inside the existing final segment.
+        end = points[-1]
+        previous = next((point for point in reversed(points[:-1]) if point != end), None)
+        if previous is not None:
+            self._move(*self._toward(end, previous, 2))
+            self._wait(plan.timing.pen_refresh)
+            self._move(*end)
+            self._wait(plan.timing.pen_refresh)
+
     def _execute(self, stroke: Stroke, plan: Plan, started: float,
                  time_limit: float | None) -> None:
         color_changed = self._color != stroke.color
@@ -825,13 +866,14 @@ class DrawingExecutor:
         canvas = plan.drawing_area(self.profile.canvas)
         local_points = [canvas.map(p, stroke.width / 2 + 1) for p in stroke.points]
         points = [(x + self._session.client.x, y + self._session.client.y) for x, y in local_points]
-        self._travel(*points[0], plan)
         if feedback:
-            self._arrive(points[0], plan, pen_start=True)
+            self._enter_stroke(points, plan)
+        else:
+            self._travel(*points[0], plan)
         self._guard()
         try:
             self._pen_started = time.monotonic()
-            self._press()
+            self._press(kind="stroke")
             self._wait(plan.timing.pen_hold*self._latency if feedback else plan.timing.event)
             for a, b in zip(points, points[1:]):
                 length = math.hypot(b[0] - a[0], b[1] - a[1])
@@ -845,6 +887,8 @@ class DrawingExecutor:
                     self._wait(plan.timing.pen_event(stroke.width, bool(feedback))
                                + length / steps / plan.timing.pixels_per_second)
             if feedback:
+                if stroke.opacity == 1:
+                    self._finish_stroke(points, plan)
                 self._wait(plan.timing.pen_hold*self._latency)
         finally:
             self._release()

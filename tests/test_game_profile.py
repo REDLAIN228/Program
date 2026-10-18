@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from app.automation import DrawingExecutor, SafetyError, WindowState
 from app.game_profile import screenshot_profile, selection_clicks
@@ -805,6 +805,110 @@ def test_brightness_already_at_maximum_is_not_dragged_away(monkeypatch):
     executor._session = game_state()
     executor._reset_value(Plan((555, 555), [], Timing(), 0, "test", []))
     assert not backend.clicks
+
+
+@pytest.mark.parametrize("legacy_entry", [True, False], ids=["old-entry-has-tails", "primed-entry-is-clean"])
+def test_cached_game_pointer_reproduces_start_tails_and_new_entry_stays_in_lines(tmp_path, monkeypatch, legacy_entry):
+    from app.draw_check import inspect_test
+    evidence = json.loads((Path(__file__).parent/"fixtures"/"test-draw-start-tails.json").read_text())
+    profile = screenshot_profile(game_state())
+
+    class PreviousMovePainter(TabbedBackend):
+        """Windows is current, but painting consumes the preceding distinct move.
+
+        This is a model of the observed shape, not a claim about Roblox internals.
+        Waiting at a stationary cursor does not refresh this game's cached point.
+        """
+        def __init__(self, p):
+            super().__init__(p)
+            self.previous = (0, 0)
+            self.ink_point = None
+            self.image = Image.new("RGB", p.client_size, "white")
+
+        def cursor_position(self):
+            r = self.snapshot().client
+            return self.point[0]+r.x, self.point[1]+r.y
+
+        def move(self, x, y):
+            old = self.point
+            super().move(x, y)
+            if self.point != old:
+                self.previous = old
+                if self.ink_point is not None:
+                    ImageDraw.Draw(self.image).line([self.ink_point, old], fill=self.rgb, width=self.width)
+                    self.ink_point = old
+
+        def down_at(self, x, y):
+            # An unchanged OS position need not produce a game MouseMoved event.
+            if (x, y) != self.cursor_position():
+                self.move(x, y)
+            self.down()
+
+        def down(self):
+            super().down()
+            if self.profile.canvas.contains(*self.point):
+                self.ink_point = self.previous
+
+        def up(self):
+            self.ink_point = None
+            super().up()
+
+    if legacy_entry:
+        def old_entry(self, points, plan):
+            self._travel(*points[0], plan)
+            self._arrive(points[0], plan, pen_start=True)
+        monkeypatch.setattr(DrawingExecutor, "_enter_stroke", old_entry)
+    backend = PreviousMovePainter(profile)
+    backend.width = 1
+    strokes = [Stroke(((.42, y), (.58, y)), tuple(rgb), width)
+               for y, rgb, width in zip((.47, .50, .53), evidence["requested_colors"], evidence["requested_widths"])]
+    plan = Plan((555, 555), strokes, Timing.preset("Turbo · 6"), 0, "test", [])
+    before = backend.image.copy()
+    assert DrawingExecutor(backend, profile).run(plan, require_verified=False) == "finished"
+    assert_drawing(backend, [(s.color, s.width) for s in strokes])
+    report = inspect_test(before, backend.image, profile, plan, tmp_path)
+    assert report["status"] == ("outside" if legacy_entry else "geometry_ok")
+    if not legacy_entry:
+        assert report["outside_pixels"] == 0
+        # The final endpoint is also drawn despite the cached previous move.
+        for stroke in strokes:
+            endpoint = profile.canvas.map(stroke.points[-1], stroke.width/2+1)
+            assert max(abs(a-b) for a, b in zip(backend.image.getpixel(endpoint), stroke.color)) <= 25
+    assert not backend.pressed
+
+
+@pytest.mark.parametrize("points", [((.5, .5),), ((.5, .5), (.5, .5)),
+                                    ((.5, .5), (.502, .5)), ((.5, .5), (.5, .502)),
+                                    ((.5, .5), (.1, .1)), ((.5, .5), (.9, .1))])
+def test_pen_entry_handles_dots_short_and_diagonal_segments_without_pressing(points):
+    profile = screenshot_profile(game_state())
+    backend = TabbedBackend(profile)
+    executor = DrawingExecutor(backend, profile)
+    executor._session = game_state()
+    r = executor._session.client
+    mapped = [(x+r.x, y+r.y) for x, y in (profile.canvas.map(p, 1.5) for p in points)]
+    plan = Plan((555, 555), [], Timing(), 0, "test", [])
+    executor._enter_stroke(mapped, plan)
+    assert backend.point == profile.canvas.map(points[0], 1.5)
+    assert not backend.clicks and not backend.pressed and not backend.drawing
+
+
+def test_stop_during_pen_entry_does_not_press_or_paint():
+    profile = screenshot_profile(game_state())
+    start = profile.canvas.map((.42, .47), 1.5)
+
+    class StopsDuringEntry(TabbedBackend):
+        def move(self, x, y):
+            super().move(x, y)
+            if self.point == (start[0]+4, start[1]) and not self.pressed:
+                executor.stop()
+
+    backend = StopsDuringEntry(profile)
+    backend.width = 1
+    executor = DrawingExecutor(backend, profile)
+    plan = Plan((555, 555), [Stroke(((.42, .47), (.58, .47)), (0, 0, 0), 1)], Timing(), 0, "test", [])
+    assert executor.run(plan, require_verified=False) == "stopped"
+    assert not backend.pressed and not backend.drawing
 
 
 def test_screenshot_saturation_direction_and_corner_inset():

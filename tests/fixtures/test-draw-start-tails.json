@@ -1,0 +1,39 @@
+{
+  "changed_pixels": 724,
+  "outside_pixels": 79,
+  "total_strokes": 3,
+  "requested_widths": [
+    1,
+    2,
+    1
+  ],
+  "requested_opacities": [
+    100,
+    100,
+    100
+  ],
+  "requested_colors": [
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      255,
+      0,
+      0
+    ],
+    [
+      0,
+      255,
+      0
+    ]
+  ],
+  "canvas": {
+    "x": 785,
+    "y": 114,
+    "width": 555,
+    "height": 555
+  },
+  "status": "outside"
+}

@@ -1151,7 +1151,9 @@ class MainWindow(StudioActions, QMainWindow):
             if test_plan is not None:
                 from app.draw_check import inspect_test
                 diagnostic = self.store.root/"logs"
-                report = inspect_test(before, after, self.profile, test_plan, diagnostic)
+                executor = getattr(self, "executor", None)
+                report = inspect_test(before, after, self.profile, test_plan, diagnostic,
+                                      presses=getattr(executor, "_control_log", None))
                 if report["status"] == "outside":
                     self.profile.verified = False
                     self.store.save_profile(self.profile)

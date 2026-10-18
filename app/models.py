@@ -276,6 +276,10 @@ class Timing:
     def pen_release(self) -> float:
         return max(.05, self.event, self.game_delay)
 
+    @property
+    def pen_refresh(self) -> float:
+        return max(1/60, min(.05, self.game_delay/4))
+
 
 @dataclass(frozen=True)
 class Stroke:
@@ -298,7 +302,8 @@ class Stroke:
                                       / timing.pen_sample(self.width, feedback)))
                       for a, b in zip(self.points, self.points[1:]))
         samples = max(1, samples)
-        overhead = (timing.control_hold+2*timing.pen_hold+timing.pen_release if feedback else 4*timing.event)
+        overhead = (timing.control_hold+2*timing.pen_hold+timing.pen_release
+                    +4*timing.pen_refresh if feedback else 4*timing.event)
         return samples * timing.pen_event(self.width, feedback) + length / timing.pixels_per_second + overhead
 
 

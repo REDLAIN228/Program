@@ -23,10 +23,16 @@ def captures():
 
 def test_exact_test_lines_are_accepted_and_diagnostics_contain_only_canvas(tmp_path):
     profile, plan, before, after = captures()
-    report = inspect_test(before, after, profile, plan, tmp_path)
+    trace = [dict(kind="stroke", wanted=(1018, 375), actual=(1018, 375), latency=1)]
+    report = inspect_test(before, after, profile, plan, tmp_path, presses=trace)
     assert report["status"] == "geometry_ok" and report["outside_pixels"] == 0
     assert Image.open(tmp_path/"test-draw-after.png").size == (555, 555)
-    assert json.loads((tmp_path/"test-draw.json").read_text())["requested_widths"] == [1, 2, 1]
+    saved = json.loads((tmp_path/"test-draw.json").read_text())
+    assert saved["requested_widths"] == [1, 2, 1]
+    assert saved["input_revision"] == "stroke-entry-v1"
+    assert saved["input_presses"] == [dict(kind="stroke", wanted=[1018, 375], actual=[1018, 375], latency=1)]
+    assert saved["timing"]["game_delay"] == .25
+    assert saved["expected_paths"][0] == [[233, 260], [321, 260]]
 
 
 def test_thick_brush_and_connector_tails_are_not_hidden_by_test_tolerance(tmp_path):
