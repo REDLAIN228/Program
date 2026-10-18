@@ -190,7 +190,8 @@ class DrawingExecutor:
         raise SafetyError(f"Размер кисти: запрошен {expected}, в игре {actual}. {reason} "
                           "Рисование остановлено до штриха."+path)
 
-    def _read_brush(self, expected, plan):
+    def _read_brush(self, expected, plan, changed_from=None):
+        """Read a stable size, allowing delayed UI updates after an arrow click."""
         slider = self.profile.brush_slider
         assert slider and slider.readout and self._session
         reader = getattr(self.backend, "read_brush_size", None)
@@ -205,11 +206,31 @@ class DrawingExecutor:
                 if not self.backend.point_belongs_to_target(x, y):
                     self._brush_failure(expected, None, "Число размера перекрыто другим окном.")
             value = reader(area)
-            if value is not None and slider.minimum <= value <= slider.maximum and value == previous:
+            if (value is not None and slider.minimum <= value <= slider.maximum and value == previous
+                    and (value != changed_from or attempt >= 5)):
                 return value
             previous = value
             self._wait(max(.15, plan.timing.control_settle/2))
         self._brush_failure(expected, previous, "Число не распознано уверенно или ещё меняется.")
+
+    def _step_brush(self, current, width, plan):
+        """Retry missed free-arrow input; never paint using an unconfirmed width."""
+        slider = self.profile.brush_slider
+        assert slider
+        arrow = slider.increase if current < width else slider.decrease
+        for attempt in range(3):
+            if attempt:
+                self._wait(max(.2, plan.timing.control_settle))
+                # A late update may arrive after the preceding read. Recheck
+                # before retrying so it cannot cause an extra size increment.
+                observed = self._read_brush(width, plan)
+                if observed != current:
+                    return observed
+            self._click(arrow, plan)
+            observed = self._read_brush(width, plan, changed_from=current)
+            if observed != current:
+                return observed
+        self._brush_failure(width, current, "Бесплатная стрелка размера не сработала после 3 попыток.")
 
     def _drag_slider(self, destination, plan, feedback):
         slider = self.profile.brush_slider
@@ -263,7 +284,9 @@ class DrawingExecutor:
             # The direct position is only an initial guess; the displayed number is authoritative.
             destination = slider.point(width)
             low, high = min(slider.start[0], slider.end[0]), max(slider.start[0], slider.end[0])
-            for attempt in range(4):
+            # At this slider's resolution adjacent small sizes can share a
+            # screen pixel. Use exact arrows directly for nearby sizes.
+            for attempt in range(4 if abs(current-width) > 8 else 0):
                 self._drag_slider(destination, plan, True)
                 current = self._read_brush(width, plan)
                 if current == width or abs(current-width) <= 8:
@@ -277,13 +300,8 @@ class DrawingExecutor:
                 destination = ((low+high)//2, slider.start[1])
             clicks = 0
             while current != width and clicks < 32:
-                arrow = slider.increase if current < width else slider.decrease
-                self._click(arrow, plan)
+                current = self._step_brush(current, width, plan)
                 clicks += 1
-                observed = self._read_brush(width, plan)
-                if observed == current:
-                    self._brush_failure(width, observed, "Бесплатная стрелка размера не сработала.")
-                current = observed
             if current != width:
                 self._brush_failure(width, current, "Не удалось выставить точный размер бесплатным регулятором.")
         self._width = width

@@ -357,3 +357,111 @@ def test_delayed_size_readout_gets_time_to_stabilize_without_dragging(monkeypatc
     assert executor._read_brush(1, plan) == 88
     assert sum(delays) >= 1
     assert not backend.clicks and not backend.drawing
+
+
+@pytest.mark.parametrize("missed", [0, 1, 2])
+def test_adjacent_brush_size_retries_missed_arrows_without_dragging(missed):
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+
+    class DropsArrow(TabbedBackend):
+        remaining = missed
+
+        def down(self):
+            if self.point == self.profile.brush_slider.increase and self.remaining:
+                self.remaining -= 1
+                self.pressed = True
+                self.clicks.append(self.point)
+            else:
+                super().down()
+
+    backend = DropsArrow(profile)
+    backend.width = 1
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 2)],
+                Timing.preset("Turbo · 7"), 1, "test", [])
+    assert DrawingExecutor(backend, profile).run(plan) == "finished"
+    assert backend.clicks.count(profile.brush_slider.increase) == missed+1
+    assert not any(590 <= x <= 720 and y == 404 for x, y in backend.clicks)
+    assert backend.drawing == [((0, 0, 0), 2)]
+    assert not backend.pressed
+
+
+@pytest.mark.parametrize("delay_reads", [4, 6])
+def test_delayed_arrow_update_is_rechecked_before_repeating_input(delay_reads):
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+
+    class DelayedArrow(TabbedBackend):
+        pending = None
+
+        def down(self):
+            if self.point == self.profile.brush_slider.increase:
+                self.pressed = True
+                self.clicks.append(self.point)
+                self.pending = delay_reads
+            else:
+                super().down()
+
+        def read_brush_size(self, region):
+            if self.pending is not None:
+                if self.pending == 0:
+                    self.width += 1
+                    self.pending = None
+                else:
+                    self.pending -= 1
+            return self.width
+
+    backend = DelayedArrow(profile)
+    backend.width = 1
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 2)],
+                Timing(), 1, "test", [])
+    assert DrawingExecutor(backend, profile).run(plan) == "finished"
+    assert backend.clicks.count(profile.brush_slider.increase) == 1
+    assert backend.drawing == [((0, 0, 0), 2)]
+    assert not backend.pressed
+
+
+def test_permanently_unresponsive_arrow_stops_after_bounded_retries():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+
+    class BrokenArrow(TabbedBackend):
+        def down(self):
+            if self.point == self.profile.brush_slider.increase:
+                self.pressed = True
+                self.clicks.append(self.point)
+            else:
+                super().down()
+
+    backend = BrokenArrow(profile)
+    backend.width = 1
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 2)],
+                Timing(), 1, "test", [])
+    with pytest.raises(SafetyError, match="после 3 попыток"):
+        DrawingExecutor(backend, profile).run(plan)
+    assert backend.clicks.count(profile.brush_slider.increase) == 3
+    assert not backend.drawing and not backend.pressed
+
+
+def test_stop_during_brush_retry_prevents_further_clicks():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = TabbedBackend(profile)
+    backend.width = 1
+    executor = DrawingExecutor(backend, profile)
+    down = backend.down
+
+    def stop_on_arrow():
+        if backend.point == profile.brush_slider.increase:
+            backend.clicks.append(backend.point)
+            backend.pressed = True
+            executor.stop()
+        else:
+            down()
+
+    backend.down = stop_on_arrow
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 2)],
+                Timing(), 1, "test", [])
+    assert executor.run(plan) == "stopped"
+    assert backend.clicks.count(profile.brush_slider.increase) == 1
+    assert not backend.drawing and not backend.pressed
