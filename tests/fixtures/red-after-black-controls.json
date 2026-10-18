@@ -1,0 +1,189 @@
+{
+  "kind": "color",
+  "expected": [
+    255,
+    0,
+    0
+  ],
+  "observed": [
+    19,
+    19,
+    19
+  ],
+  "profile": {
+    "name": "Roblox · персонаж слева · 1366×768",
+    "target_class": "WINDOWSCLIENT",
+    "target_process": "RobloxPlayerBeta.exe",
+    "client_size": [
+      1366,
+      768
+    ],
+    "dpi": 96,
+    "canvas": {
+      "x": 785,
+      "y": 114,
+      "width": 555,
+      "height": 555
+    },
+    "swatches": [],
+    "brushes": [
+      {
+        "pixels": 1,
+        "point": [
+          590,
+          404
+        ]
+      },
+      {
+        "pixels": 2,
+        "point": [
+          590,
+          404
+        ]
+      },
+      {
+        "pixels": 6,
+        "point": [
+          590,
+          404
+        ]
+      },
+      {
+        "pixels": 16,
+        "point": [
+          590,
+          404
+        ]
+      },
+      {
+        "pixels": 32,
+        "point": [
+          590,
+          404
+        ]
+      },
+      {
+        "pixels": 64,
+        "point": [
+          590,
+          404
+        ]
+      }
+    ],
+    "brush_tool": [
+      868,
+      720
+    ],
+    "character": {
+      "x": 70,
+      "y": 215,
+      "width": 355,
+      "height": 465
+    },
+    "verified": false,
+    "color_indicator": [
+      565,
+      283
+    ],
+    "color_tolerance": 25,
+    "anchors": [],
+    "color_wheel": {
+      "center": [
+        644,
+        209
+      ],
+      "red": [
+        643,
+        135
+      ],
+      "square": {
+        "x": 605,
+        "y": 170,
+        "width": 78,
+        "height": 79
+      },
+      "value_reset": [
+        746,
+        132
+      ],
+      "mode_button": [
+        573,
+        317
+      ],
+      "saturation_reversed": true,
+      "inset": 3
+    },
+    "color_tab": [
+      593,
+      100
+    ],
+    "size_tab": null,
+    "brush_slider": {
+      "start": [
+        590,
+        404
+      ],
+      "end": [
+        720,
+        404
+      ],
+      "minimum": 1,
+      "maximum": 256,
+      "readout": {
+        "x": 698,
+        "y": 370,
+        "width": 38,
+        "height": 20
+      },
+      "decrease": [
+        561,
+        404
+      ],
+      "increase": [
+        747,
+        404
+      ]
+    },
+    "forbidden": [
+      {
+        "x": 654,
+        "y": 87,
+        "width": 111,
+        "height": 27
+      },
+      {
+        "x": 1165,
+        "y": 690,
+        "width": 201,
+        "height": 78
+      }
+    ],
+    "adapter": "roblox-free-slider-v4",
+    "opacity_slider": {
+      "start": [
+        720,
+        454
+      ],
+      "end": [
+        590,
+        454
+      ],
+      "minimum": 1,
+      "maximum": 100,
+      "readout": {
+        "x": 690,
+        "y": 419,
+        "width": 46,
+        "height": 21
+      },
+      "decrease": [
+        747,
+        454
+      ],
+      "increase": [
+        561,
+        454
+      ]
+    }
+  }
+}

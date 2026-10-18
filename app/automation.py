@@ -123,7 +123,7 @@ class DrawingExecutor:
             if wheel.mode_button:
                 self._click(wheel.mode_button, plan)
             if wheel.value_reset:
-                self._click(wheel.value_reset, plan)
+                self._reset_value(plan)
         self._controls_ready = True
 
     def stop(self) -> None:
@@ -680,15 +680,80 @@ class DrawingExecutor:
                                 "predicted": measured_prediction, "strokes": len(self.executed_indices),
                                 "skipped": len(self.skipped_indices), "draw_seconds": self._pen_seconds}
 
-    def _select_color(self, color, plan):
+    def _palette_marker(self, kind):
+        locator = getattr(self.backend, "color_control_marker", None)
+        if locator:
+            self._guard()
+            point = locator(self.profile.color_wheel, kind)
+            if point is not None:
+                return point
+        return None
+
+    def _drag_palette(self, path, plan):
+        """Generate real mouse movement while held; a stationary click may do nothing."""
+        assert self._session
+        ox, oy = self._session.client.x, self._session.client.y
+        self._travel(ox+path[0][0], oy+path[0][1], plan)
+        self._arrive((ox+path[0][0], oy+path[0][1]), plan)
+        try:
+            self._press()
+            self._control_log[-1]["drag_to"] = (ox+path[-1][0], oy+path[-1][1])
+            self._wait(plan.timing.control_hold*self._latency)
+            for a, b in zip(path, path[1:]):
+                steps = max(1, math.ceil(math.dist(a, b)/3))
+                for i in range(1, steps+1):
+                    self._move(ox+round(a[0]+(b[0]-a[0])*i/steps),
+                               oy+round(a[1]+(b[1]-a[1])*i/steps))
+                    self._wait(max(.025, plan.timing.game_delay/4))
+            self._wait(plan.timing.control_hold*self._latency)
+        finally:
+            self._release()
+        self._wait(plan.timing.control_settle*self._latency)
+
+    def _reset_value(self, plan):
+        wheel = self.profile.color_wheel
+        if not wheel or not wheel.value_reset:
+            return
+        if not wheel.value_end:
+            self._click(wheel.value_reset, plan)
+            return
+        start = self._palette_marker("value") or wheel.value_end
+        # Move at least once even when the marker is already at the endpoint.
+        middle = ((wheel.value_reset[0]+wheel.value_end[0])//2,
+                  (wheel.value_reset[1]+wheel.value_end[1])//2)
+        self._drag_palette([start, middle, wheel.value_reset], plan)
+
+    def _select_color(self, color, plan, recover=False):
         self._open_controls(plan)
         wheel = self.profile.color_wheel
         if wheel:
+            if recover:
+                self._reset_value(plan)
             points = wheel.points(color)
             if max(color) != min(color) and points[0] != self._last_hue:
-                self._click(points[0], plan)
+                marker = self._palette_marker("hue")
+                start = marker or self._last_hue or wheel.red
+                if marker is None or math.dist(start, points[0]) > 1:
+                    cx, cy = wheel.center
+                    radius = math.dist(wheel.center, wheel.red)
+                    angle = math.atan2(start[1]-cy, start[0]-cx)
+                    end = math.atan2(points[0][1]-cy, points[0][0]-cx)
+                    delta = (end-angle+math.pi) % (2*math.pi)-math.pi
+                    count = max(2, math.ceil(abs(delta)*radius/3))
+                    path = [start]+[(round(cx+radius*math.cos(angle+delta*i/count)),
+                                     round(cy+radius*math.sin(angle+delta*i/count))) for i in range(1, count+1)]
+                    if math.dist(start, points[0]) <= 1:
+                        path = [start, (round(cx+radius*math.cos(angle+.04)),
+                                        round(cy+radius*math.sin(angle+.04))), points[0]]
+                    path[-1] = points[0]
+                    self._drag_palette(path, plan)
                 self._last_hue = points[0]
-            self._click(points[-1], plan)
+            r = wheel.square
+            start = self._palette_marker("square") or (r.x+r.width//2, r.y+r.height//2)
+            path = [start, points[-1]]
+            if start == points[-1]:
+                path.insert(1, (r.x+r.width//2, r.y+r.height//2))
+            self._drag_palette(path, plan)
         else:
             swatch = next(s for s in self.profile.swatches if s.rgb == color)
             for anchor in self.profile.anchors:
@@ -736,7 +801,7 @@ class DrawingExecutor:
         if controls_changed and self._opacity in (None, 100) and not self._color_matches(stroke.color, plan):
             self._latency = min(3., self._latency+.5)
             self._last_hue = None
-            self._select_color(stroke.color, plan)
+            self._select_color(stroke.color, plan, recover=True)
             if feedback:
                 self._set_brush(stroke.width, plan)
             if not self._color_matches(stroke.color, plan):

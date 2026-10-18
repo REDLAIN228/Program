@@ -51,6 +51,7 @@ class ColorWheel:
     mode_button: tuple[int, int] | None = None
     saturation_reversed: bool = False
     inset: int = 0
+    value_end: tuple[int, int] | None = None
 
     def points(self, rgb: RGB) -> list[tuple[int, int]]:
         if len(rgb) != 3 or any(not 0 <= c <= 255 for c in rgb):
@@ -167,7 +168,7 @@ class Calibration:
             controls += [(cx-radius, cy-radius), (cx+radius, cy+radius), wheel.center, wheel.red,
                          (wheel.square.x, wheel.square.y),
                          (wheel.square.x + wheel.square.width-1, wheel.square.y + wheel.square.height-1)]
-            controls += [p for p in [wheel.value_reset, wheel.mode_button] if p is not None]
+            controls += [p for p in [wheel.value_reset, wheel.mode_button, wheel.value_end] if p is not None]
         if any(not Rect(0, 0, w, h).contains(*p) for p in controls):
             raise ValueError("Элемент управления вне окна")
         if any(self.canvas.contains(*p) for p in controls):
@@ -201,7 +202,8 @@ class Calibration:
                                     tuple(d["color_wheel"]["value_reset"]) if d["color_wheel"].get("value_reset") else None,
                                     tuple(d["color_wheel"]["mode_button"]) if d["color_wheel"].get("mode_button") else None,
                                     bool(d["color_wheel"].get("saturation_reversed", False)),
-                                    d["color_wheel"].get("inset", 0))
+                                    d["color_wheel"].get("inset", 0),
+                                    tuple(d["color_wheel"]["value_end"]) if d["color_wheel"].get("value_end") else None)
                          if d.get("color_wheel") else None),
             color_tab=tuple(d["color_tab"]) if d.get("color_tab") else None,
             size_tab=tuple(d["size_tab"]) if d.get("size_tab") else None,
@@ -408,6 +410,9 @@ def estimate_plan(strokes: list[Stroke], size: tuple[int, int], timing: Timing,
             total += 3*click_seconds  # Open tab, wheel mode, brightness once.
         if s.color != prev_color:
             total += color_clicks * click_seconds
+            if feedback_controls:
+                # HSV gestures send held movement as well as press/release.
+                total += 30*max(.025, timing.game_delay/4)
         if feedback_controls:
             if prev_width is None or abs(s.width-prev_width) > 8:
                 total += brush_clicks*click_seconds

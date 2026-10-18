@@ -7,8 +7,8 @@ from app.models import Brush, BrushSlider, Calibration, ColorWheel, Rect
 
 PAID_AREAS = [Rect(654, 87, 111, 27), Rect(1165, 690, 201, 78)]
 PROFILE_NAME = "Roblox · персонаж слева · 1366×768"
-FREE_SLIDER_ADAPTER = "roblox-free-slider-v4"
-LEGACY_ADAPTERS = {"roblox-free-slider-v1", "roblox-free-slider-v2", "roblox-free-slider-v3"}
+FREE_SLIDER_ADAPTER = "roblox-free-slider-v5"
+LEGACY_ADAPTERS = {"roblox-free-slider-v1", "roblox-free-slider-v2", "roblox-free-slider-v3", "roblox-free-slider-v4"}
 
 
 def opacity_slider():
@@ -20,7 +20,8 @@ def opacity_slider():
 def screenshot_wheel():
     # Saturated hue is LEFT, white is RIGHT. Stay inside the rounded corners.
     return ColorWheel((644, 209), (643, 135), Rect(605, 170, 78, 79),
-                      value_reset=(746, 132), mode_button=(573, 317), saturation_reversed=True, inset=3)
+                      value_reset=(746, 132), mode_button=(573, 317), saturation_reversed=True, inset=3,
+                      value_end=(746, 286))
 
 
 def feedback_slider(slider):

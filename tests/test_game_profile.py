@@ -1,6 +1,8 @@
 from dataclasses import replace
 import colorsys
 import math
+import json
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -62,6 +64,7 @@ class TabbedBackend:
         self.opacity = 100
         self.rgb = (0, 0, 0)
         self.hue = 0.
+        self.saturation, self.value = 0., 0.
 
     def read_brush_size(self, region): return self.width
     def read_opacity(self, region): return self.opacity
@@ -79,6 +82,20 @@ class TabbedBackend:
             self.width = round(1+(self.point[0]-590)*255/130)
         if self.pressed and self.point[1] == 454 and 590 <= self.point[0] <= 720:
             self.opacity = round(100-(self.point[0]-590)*99/130)
+        if self.pressed:
+            self._apply_palette(self.point)
+
+    def _apply_palette(self, point):
+        # Independently modeled control geometry, responding to held movement.
+        if 605 <= point[0] <= 682 and 170 <= point[1] <= 248:
+            self.saturation, self.value = 1-(point[0]-605)/77, 1-(point[1]-170)/78
+        elif abs(point[0]-746) <= 4 and 126 <= point[1] <= 293:
+            self.value = max(0., min(1., 1-(point[1]-132)/154))
+        elif abs(math.dist(point, (644, 209))-74) <= 8:
+            self.hue = math.atan2(point[0]-644, 209-point[1])/(2*math.pi) % 1
+        else:
+            return
+        self.rgb = tuple(round(v*255) for v in colorsys.hsv_to_rgb(self.hue, self.saturation, self.value))
 
     def down(self):
         self.pressed = True
@@ -106,11 +123,7 @@ class TabbedBackend:
             assert self.tab == "color", "Clicked the color wheel on the size tab"
             # Independent game geometry from the screenshot: hue on the LEFT,
             # white on the RIGHT. Do not reuse ColorWheel.points to model this.
-            if 605 <= point[0] <= 682 and 170 <= point[1] <= 248:
-                saturation, value = 1-(point[0]-605)/77, 1-(point[1]-170)/78
-                self.rgb = tuple(round(v*255) for v in colorsys.hsv_to_rgb(self.hue, saturation, value))
-            elif point not in {(573, 317), (746, 132)}:
-                self.hue = math.atan2(point[0]-644, 209-point[1])/(2*math.pi) % 1
+            self._apply_palette(point)
         self.clicks.append(point)
 
     def up(self): self.pressed = False
@@ -121,6 +134,12 @@ def assert_drawing(backend, expected):
     for (actual, width), (rgb, requested_width) in zip(backend.drawing, expected):
         assert width == requested_width
         assert max(abs(a-b) for a, b in zip(actual, rgb)) <= 25
+
+
+def drag_count(executor, target):
+    r = executor._session.client
+    endpoint = r.x+target[0], r.y+target[1]
+    return sum(entry.get("drag_to") == endpoint for entry in executor._control_log)
 
 
 def test_executor_switches_hidden_tabs_and_uses_adaptive_colors():
@@ -407,7 +426,7 @@ def test_adjacent_brush_size_retries_missed_arrows_without_dragging(missed):
     assert DrawingExecutor(backend, profile).run(plan) == "finished"
     assert backend.clicks.count(profile.brush_slider.increase) == missed+1
     assert not any(590 <= x <= 720 and y == 404 for x, y in backend.clicks)
-    assert backend.drawing == [((0, 0, 0), 2)]
+    assert_drawing(backend, [((0, 0, 0), 2)])
     assert not backend.pressed
 
 
@@ -442,7 +461,7 @@ def test_delayed_arrow_update_is_rechecked_before_repeating_input(delay_reads):
                 Timing(), 1, "test", [])
     assert DrawingExecutor(backend, profile).run(plan) == "finished"
     assert backend.clicks.count(profile.brush_slider.increase) == 1
-    assert backend.drawing == [((0, 0, 0), 2)]
+    assert_drawing(backend, [((0, 0, 0), 2)])
     assert not backend.pressed
 
 
@@ -509,8 +528,9 @@ def test_missed_color_selection_is_corrected_after_brush_controls():
     backend.width = 1
     plan = Plan((555, 555), [Stroke(((.42, .5), (.58, .5)), (255, 0, 0), 2)],
                 Timing.preset("Turbo · 7"), 1, "test", [])
-    assert DrawingExecutor(backend, profile).run(plan) == "finished"
-    assert backend.clicks.count((608, 173)) == 2
+    executor = DrawingExecutor(backend, profile)
+    assert executor.run(plan) == "finished"
+    assert drag_count(executor, (608, 173)) == 2
     assert_drawing(backend, [((255, 0, 0), 2)])
 
 
@@ -623,12 +643,13 @@ def test_opacity_is_confirmed_and_same_value_does_not_repeat_controls(percent):
     backend.down = record
     strokes = [Stroke(((.2, y), (.3, y)), (255, 0, 0), 1, opacity=percent/100) for y in (.2, .8)]
     plan = Plan((555, 555), strokes, Timing.preset("Turbo · 7"), 1, "test", [])
-    assert DrawingExecutor(backend, profile).run(plan) == "finished"
+    executor = DrawingExecutor(backend, profile)
+    assert executor.run(plan) == "finished"
     assert applied == [percent, percent]
     assert backend.clicks.count(profile.color_tab) == 1
     assert backend.clicks.count(profile.color_wheel.mode_button) == 1
-    assert backend.clicks.count(profile.color_wheel.value_reset) == 1
-    assert backend.clicks.count((608, 173)) == 1
+    assert drag_count(executor, profile.color_wheel.value_reset) == 1
+    assert drag_count(executor, (608, 173)) == 1
     assert not any(r.contains(*point) for point in backend.clicks for r in profile.forbidden)
 
 
@@ -763,3 +784,147 @@ def test_missed_opacity_drag_is_retried_before_painting():
     assert DrawingExecutor(backend, profile).run(plan) == "finished"
     assert backend.attempts == 2 and backend.opacity == 50
     assert len(backend.drawing) == 1
+
+
+class ThumbDragOnlyBackend(TabbedBackend):
+    """Controls ignore stationary clicks; only dragging a selector moves it."""
+    def __init__(self, p):
+        super().__init__(p)
+        self.tab = "color"
+        self.width = 1
+        self.value = 19/255
+        self.rgb = (19, 19, 19)
+        self.capture = None
+        self.palette_press = False
+
+    def color_control_marker(self, wheel, kind):
+        if kind == "square":
+            return round(605+(1-self.saturation)*77), round(170+(1-self.value)*78)
+        if kind == "hue":
+            angle = self.hue*2*math.pi
+            return round(644+74*math.sin(angle)), round(209-74*math.cos(angle))
+        if kind == "value":
+            return 746, round(132+(1-self.value)*154)
+
+    def down(self):
+        p = self.point
+        kind = ("square" if 605 <= p[0] <= 682 and 170 <= p[1] <= 248 else
+                "hue" if abs(math.dist(p, (644, 209))-74) <= 8 else
+                "value" if abs(p[0]-746) <= 4 and 126 <= p[1] <= 293 else None)
+        self.palette_press = kind is not None
+        if kind:
+            self.capture = kind if math.dist(p, self.color_control_marker(self.profile.color_wheel, kind)) <= 6 else None
+            self.pressed = True
+            self.clicks.append(p)
+        else:
+            super().down()
+
+    def move(self, x, y):
+        if self.pressed and self.palette_press:
+            origin = self.snapshot().client
+            self.point = (x-origin.x, y-origin.y)
+            if self.capture:
+                if self.capture == "hue":
+                    assert abs(math.dist(self.point, (644, 209))-74) <= 2, "Hue drag crossed the square"
+                self._apply_palette(self.point)
+        else:
+            super().move(x, y)
+
+    def up(self):
+        self.palette_press, self.capture = False, None
+        super().up()
+
+
+def test_uploaded_v4_profile_reproduces_dark_red_failure_with_stationary_clicks():
+    data = json.loads((Path(__file__).parent/"fixtures"/"red-after-black-controls.json").read_text())
+    profile = Calibration.from_dict(data["profile"])
+    backend = ThumbDragOnlyBackend(profile)
+    executor = DrawingExecutor(backend, profile)
+    state = replace(game_state(), window_class=profile.target_class, dpi=profile.dpi)
+    backend.snapshot = lambda: state
+    executor._session = state
+    plan = Plan((555, 555), [], Timing(), 0, "test", [])
+    executor._click((643, 135), plan)
+    executor._click((608, 173), plan)
+    assert backend.rgb == tuple(data["observed"]) == (19, 19, 19)
+    assert not backend.pressed
+
+
+def test_uploaded_profile_migrates_and_three_test_colors_work_on_drag_only_target():
+    data = json.loads((Path(__file__).parent/"fixtures"/"red-after-black-controls.json").read_text())
+    profile = Calibration.from_dict(data["profile"])
+    backend = ThumbDragOnlyBackend(profile)
+    state = replace(game_state(), window_class=profile.target_class, dpi=profile.dpi)
+    backend.snapshot = lambda: state
+    executor = DrawingExecutor(backend, profile)
+    assert profile.adapter.endswith("v5") and profile.color_wheel.value_end == (746, 286)
+    strokes = [Stroke(((.42, y), (.58, y)), color, width)
+               for y, color, width in [(.47, (0, 0, 0), 1), (.5, (255, 0, 0), 2), (.53, (0, 255, 0), 1)]]
+    plan = Plan((555, 555), strokes, Timing(), 0, "test", [])
+    assert executor.run(plan, require_verified=False) == "finished"
+    assert_drawing(backend, [((0, 0, 0), 1), ((255, 0, 0), 2), ((0, 255, 0), 1)])
+    assert not backend.pressed
+    assert not any(area.contains(*point) for point in backend.clicks for area in profile.forbidden)
+
+
+def test_failed_red_drag_recovers_value_and_repeats_selection():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+
+    class DropRedOnce(ThumbDragOnlyBackend):
+        lost = False
+
+        def move(self, x, y):
+            previous = self.rgb, self.saturation, self.value
+            super().move(x, y)
+            if self.capture == "square" and len(self.drawing) == 1 and not self.lost:
+                self.rgb, self.saturation, self.value = previous
+
+        def up(self):
+            if self.capture == "square" and len(self.drawing) == 1:
+                self.lost = True
+            super().up()
+
+    backend = DropRedOnce(profile)
+    executor = DrawingExecutor(backend, profile)
+    strokes = [Stroke(((.42, y), (.58, y)), color, 1) for y, color in [(.47, (0, 0, 0)), (.5, (255, 0, 0))]]
+    plan = Plan((555, 555), strokes, Timing(), 0, "test", [])
+    assert executor.run(plan) == "finished"
+    assert backend.lost and drag_count(executor, profile.color_wheel.value_reset) >= 2
+    assert_drawing(backend, [((0, 0, 0), 1), ((255, 0, 0), 1)])
+
+
+def test_stop_during_palette_drag_releases_without_drawing():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = ThumbDragOnlyBackend(profile)
+    executor = DrawingExecutor(backend, profile)
+    move = backend.move
+
+    def stop_during_drag(x, y):
+        move(x, y)
+        if backend.capture == "square":
+            executor.stop()
+
+    backend.move = stop_during_drag
+    plan = Plan((555, 555), [Stroke(((.42, .5), (.58, .5)), (255, 0, 0), 1)], Timing(), 0, "test", [])
+    assert executor.run(plan) == "stopped"
+    assert not backend.drawing and not backend.pressed
+
+
+def test_unresponsive_palette_still_refuses_red_instead_of_painting_dark_gray():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+
+    class FrozenPalette(ThumbDragOnlyBackend):
+        def _apply_palette(self, point):
+            pass
+
+    backend = FrozenPalette(profile)
+    executor = DrawingExecutor(backend, profile)
+    plan = Plan((555, 555), [Stroke(((.42, y), (.58, y)), color, 1)
+                            for y, color in [(.47, (0, 0, 0)), (.5, (255, 0, 0))]], Timing(), 0, "test", [])
+    with pytest.raises(SafetyError, match="Индикатор цвета не совпал"):
+        executor.run(plan)
+    assert executor.completed == 1 and backend.drawing == [((19, 19, 19), 1)]
+    assert not backend.pressed

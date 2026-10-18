@@ -210,6 +210,37 @@ class Win32Backend:
                                  "width": abs(end[0]-start[0])+21, "height": 1})
         return blue_thumb(Image.frombytes("RGB", shot.size, shot.rgb), (left, top))
 
+    def color_control_marker(self, wheel, kind):
+        import math
+        import mss
+        from PIL import Image
+        from app.slider import white_marker
+        state = self.snapshot()
+        if kind == "square":
+            r = wheel.square
+            area = Rect(r.x-6, r.y-6, r.width+12, r.height+12)
+            allowed = lambda point: r.contains(*point)
+        elif kind == "hue":
+            cx, cy = wheel.center
+            radius = math.dist(wheel.center, wheel.red)
+            side = math.ceil(radius)+8
+            area = Rect(cx-side, cy-side, 2*side+1, 2*side+1)
+            allowed = lambda point: abs(math.dist(point, wheel.center)-radius) <= 6
+        elif kind == "value" and wheel.value_end and wheel.value_reset:
+            x, y = wheel.value_reset
+            bottom = wheel.value_end[1]
+            area = Rect(x-8, min(y, bottom)-7, 17, abs(bottom-y)+15)
+            allowed = lambda point: abs(point[0]-x) <= 3
+        else:
+            return None
+        if (area.x < 0 or area.y < 0 or area.x+area.width > state.client.width
+                or area.y+area.height > state.client.height):
+            return None
+        with mss.mss() as capture:
+            shot = capture.grab({"left": state.client.x+area.x, "top": state.client.y+area.y,
+                                 "width": area.width, "height": area.height})
+        return white_marker(Image.frombytes("RGB", shot.size, shot.rgb), (area.x, area.y), allowed)
+
     def read_brush_size(self, region):
         import mss
         from PIL import Image
