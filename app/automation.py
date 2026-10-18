@@ -80,11 +80,19 @@ class DrawingExecutor:
         cursor = getattr(self.backend, "cursor_position", None)
         self._control_log = (self._control_log+[dict(wanted=self._pointer, actual=cursor() if cursor else None,
                                                    latency=self._latency)])[-64:]
-        self.backend.down()
+        down_at = getattr(self.backend, "down_at", None)
+        if down_at and self._pointer is not None:
+            down_at(*self._pointer)
+        else:
+            self.backend.down()
         self._released_at = None
 
-    def _arrive(self, point, plan):
+    def _arrive(self, point, plan, *, pen_start=False):
         """Do not press while Windows or the game still sees the previous position."""
+        if pen_start:
+            # Reassert pen-up at the stationary start after leaving controls.
+            # Do not let a slider's drag capture become the first paint stroke.
+            self._release()
         self._wait(plan.timing.control_hold*self._latency)
         position = getattr(self.backend, "cursor_position", None)
         if position is None:
@@ -700,11 +708,12 @@ class DrawingExecutor:
             self._control_log[-1]["drag_to"] = (ox+path[-1][0], oy+path[-1][1])
             self._wait(plan.timing.control_hold*self._latency)
             for a, b in zip(path, path[1:]):
-                steps = max(1, math.ceil(math.dist(a, b)/3))
+                distance = math.dist(a, b)
+                steps = max(1, math.ceil(distance/6))
                 for i in range(1, steps+1):
                     self._move(ox+round(a[0]+(b[0]-a[0])*i/steps),
                                oy+round(a[1]+(b[1]-a[1])*i/steps))
-                    self._wait(max(.025, plan.timing.game_delay/4))
+                    self._wait(plan.timing.palette_event(distance/steps))
             self._wait(plan.timing.control_hold*self._latency)
         finally:
             self._release()
@@ -718,10 +727,9 @@ class DrawingExecutor:
             self._click(wheel.value_reset, plan)
             return
         start = self._palette_marker("value") or wheel.value_end
-        # Move at least once even when the marker is already at the endpoint.
-        middle = ((wheel.value_reset[0]+wheel.value_end[0])//2,
-                  (wheel.value_reset[1]+wheel.value_end[1])//2)
-        self._drag_palette([start, middle, wheel.value_reset], plan)
+        if math.dist(start, wheel.value_reset) <= 2:
+            return  # The visible selector already confirms maximum brightness.
+        self._drag_palette([start, wheel.value_reset], plan)
 
     def _select_color(self, color, plan, recover=False):
         self._open_controls(plan)
@@ -739,7 +747,7 @@ class DrawingExecutor:
                     angle = math.atan2(start[1]-cy, start[0]-cx)
                     end = math.atan2(points[0][1]-cy, points[0][0]-cx)
                     delta = (end-angle+math.pi) % (2*math.pi)-math.pi
-                    count = max(2, math.ceil(abs(delta)*radius/3))
+                    count = max(2, math.ceil(abs(delta)*radius/6))
                     path = [start]+[(round(cx+radius*math.cos(angle+delta*i/count)),
                                      round(cy+radius*math.sin(angle+delta*i/count))) for i in range(1, count+1)]
                     if math.dist(start, points[0]) <= 1:
@@ -792,7 +800,8 @@ class DrawingExecutor:
             # hue at 100%, then restore the requested drawing opacity.
             if self.profile.opacity_slider and self._opacity != 100:
                 self._set_opacity(100, plan)
-            if not self.profile.color_indicator or not self._color_matches(stroke.color, plan):
+            if (self._color is not None or not self.profile.color_indicator
+                    or not self._color_matches(stroke.color, plan)):
                 self._select_color(stroke.color, plan)
         feedback = self.profile.brush_slider and self.profile.brush_slider.readout
         controls_changed = color_changed or self._width != stroke.width
@@ -818,7 +827,7 @@ class DrawingExecutor:
         points = [(x + self._session.client.x, y + self._session.client.y) for x, y in local_points]
         self._travel(*points[0], plan)
         if feedback:
-            self._arrive(points[0], plan)
+            self._arrive(points[0], plan, pen_start=True)
         self._guard()
         try:
             self._pen_started = time.monotonic()

@@ -175,10 +175,20 @@ class Win32Backend:
                                   "Запустите окна с одинаковыми правами; обход защиты не поддерживается.")
 
     def move(self, x, y):
+        self._move_packet(x, y)
+
+    def _move_packet(self, x, y, button=0):
         sx, sy = user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)
         sw, sh = user32.GetSystemMetrics(78), user32.GetSystemMetrics(79)
         ax, ay = normalize_absolute(x, y, Rect(sx, sy, sw, sh))
-        self._send(0x8000 | 0x4000 | 0x0001, ax, ay)
+        # Preserve ordered movement messages at pen boundaries. GetCursorPos
+        # alone does not say which coalesced move the application has consumed.
+        self._send(0x8000 | 0x4000 | 0x2000 | 0x0001 | button, ax, ay)
+
+    def down_at(self, x, y):
+        # The button event carries its own position, rather than depending on
+        # the application's last processed standalone mouse-move message.
+        self._move_packet(x, y, 0x0002)
 
     def cursor_position(self):
         point = wintypes.POINT()

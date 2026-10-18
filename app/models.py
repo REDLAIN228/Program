@@ -256,6 +256,11 @@ class Timing:
     def control_settle(self) -> float:
         return max(.35, self.settle, self.game_delay*2)
 
+    def palette_event(self, distance: float) -> float:
+        # Game latency belongs at gesture boundaries, not at every tiny move.
+        # Keep intermediate selector movement visible for at least one frame.
+        return max(1/60, distance/min(360, self.control_speed))
+
     def pen_event(self, width: int, feedback: bool = False) -> float:
         # A one-pixel corner must survive at least one 60 Hz game frame.
         return max(self.event, 1/(60 if width <= 2 else 120)) if feedback else self.event
@@ -412,7 +417,7 @@ def estimate_plan(strokes: list[Stroke], size: tuple[int, int], timing: Timing,
             total += color_clicks * click_seconds
             if feedback_controls:
                 # HSV gestures send held movement as well as press/release.
-                total += 30*max(.025, timing.game_delay/4)
+                total += 20*timing.palette_event(6)
         if feedback_controls:
             if prev_width is None or abs(s.width-prev_width) > 8:
                 total += brush_clicks*click_seconds

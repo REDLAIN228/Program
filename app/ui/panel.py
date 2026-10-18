@@ -1156,8 +1156,8 @@ class MainWindow(StudioActions, QMainWindow):
                     self.profile.verified = False
                     self.store.save_profile(self.profile)
                     self.error("TEST DRAW: след вышел далеко за границы тестовых линий. "
-                               "Толщина или инструмент не соответствуют профилю. "
-                               "RUN заблокирован; выполните CHECK BRUSH SIZE и проверьте обычную кисть. "
+                               "Возможны лишний след при переходе, задержка ввода или неверная толщина кисти. "
+                               "RUN заблокирован; проверьте обычную кисть и CHECK BRUSH SIZE. "
                                f"Снимок результата: {diagnostic/'test-draw-after.png'}")
                     return
             # Inspect the actual test-line region, not animated characters/UI.

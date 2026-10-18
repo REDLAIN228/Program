@@ -725,6 +725,88 @@ def test_delayed_cursor_arrival_and_release_never_start_a_line_on_the_way(monkey
     assert not backend.tails
 
 
+def test_pen_start_releases_at_destination_and_uses_positioned_press(monkeypatch):
+    profile = screenshot_profile(game_state())
+
+    class CoalescedTarget(TabbedBackend):
+        """OS cursor is current; the game's last consumed move can still be old."""
+        def __init__(self, p):
+            super().__init__(p)
+            self.os_point = self.point
+            self.releases = []
+
+        def cursor_position(self):
+            origin = self.snapshot().client
+            return self.os_point[0]+origin.x, self.os_point[1]+origin.y
+
+        def move(self, x, y):
+            origin = self.snapshot().client
+            self.os_point = x-origin.x, y-origin.y
+            if self.pressed:
+                super().move(x, y)
+
+        def down(self):
+            raise AssertionError("An unpositioned press can use the previous game cursor")
+
+        def down_at(self, x, y):
+            origin = self.snapshot().client
+            self.point = x-origin.x, y-origin.y
+            TabbedBackend.down(self)
+
+        def up(self):
+            self.releases.append(self.os_point)
+            super().up()
+
+    backend = CoalescedTarget(profile)
+    backend.width = 1
+    executor = DrawingExecutor(backend, profile)
+    executor._session = game_state()
+    # Already confirmed controls isolate pen movement from color setup.
+    executor._tool_selected = executor._controls_ready = True
+    executor._color, executor._width, executor._opacity = (0, 0, 0), 1, 100
+    waits = []
+    monkeypatch.setattr(executor, "_wait", waits.append)
+    stroke = Stroke(((.42, .47), (.58, .47)), (0, 0, 0), 1)
+    plan = Plan((555, 555), [stroke], Timing(), 0, "test", [])
+    executor._execute(stroke, plan, 0, None)
+    start = profile.canvas.map(stroke.points[0], 1.5)
+    assert start in backend.releases
+    assert backend.clicks == [start]
+    assert backend.drawing == [((0, 0, 0), 1)]
+    assert not backend.pressed
+
+
+def test_palette_motion_does_not_repeat_game_latency_at_each_sample(monkeypatch):
+    profile = screenshot_profile(game_state())
+    backend = ThumbDragOnlyBackend(profile)
+    executor = DrawingExecutor(backend, profile)
+    waits = []
+    elapsed = [0.]
+    def advance(seconds):
+        waits.append(seconds)
+        elapsed[0] += seconds
+    monkeypatch.setattr("app.automation.time.monotonic", lambda: elapsed[0])
+    monkeypatch.setattr(executor, "_wait", advance)
+    strokes = [Stroke(((.42, y), (.58, y)), rgb, width)
+               for y, rgb, width in [(.47, (0, 0, 0), 1), (.5, (255, 0, 0), 2), (.53, (0, 255, 0), 1)]]
+    plan = Plan((555, 555), strokes, Timing(), 0, "test", [])
+    assert executor.run(plan, require_verified=False) == "finished"
+    assert_drawing(backend, [((0, 0, 0), 1), ((255, 0, 0), 2), ((0, 255, 0), 1)])
+    # The same drag-only scenario took over 40 simulated seconds before this fix.
+    # This measures programmed waits, not Windows/Roblox runtime performance.
+    assert sum(waits) < 30
+
+
+def test_brightness_already_at_maximum_is_not_dragged_away(monkeypatch):
+    profile = screenshot_profile(game_state())
+    backend = ThumbDragOnlyBackend(profile)
+    backend.value = 1.
+    executor = DrawingExecutor(backend, profile)
+    executor._session = game_state()
+    executor._reset_value(Plan((555, 555), [], Timing(), 0, "test", []))
+    assert not backend.clicks
+
+
 def test_screenshot_saturation_direction_and_corner_inset():
     wheel = screenshot_profile(game_state()).color_wheel
     assert wheel.points((255, 0, 0))[-1] == (608, 173)
