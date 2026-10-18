@@ -151,3 +151,35 @@ def test_layout_anchor_change_is_detected_before_any_click(profile):
     with pytest.raises(SafetyError, match="расположение"):
         DrawingExecutor(backend, profile).run(plan())
     assert not any(e[0] == "down" for e in backend.events)
+
+
+def test_custom_drawing_size_is_translated_to_canvas_center_and_stays_inside(profile):
+    backend = Backend()
+    drawing = plan()
+    drawing.canvas_size = (100, 80)
+    drawing.drawing_rect = Rect(100, 100, 100, 80)
+    drawing.target_canvas_size = (300, 280)
+    area = Rect(180, 200, 100, 80)
+    pressed_points, point = [], [None]
+    move, down = backend.move, backend.down
+    def record_move(x, y):
+        point[0] = (x, y)
+        move(x, y)
+        if backend.pressed:
+            pressed_points.append((x, y))
+    def record_down():
+        down()
+        if len([e for e in backend.events if e[0] == "down"]) == 3:
+            pressed_points.append(point[0])
+    backend.move, backend.down = record_move, record_down
+    assert DrawingExecutor(backend, profile).run(drawing) == "finished"
+    assert pressed_points
+    origin = backend.state.client
+    assert all(area.contains(x-origin.x, y-origin.y) for x, y in pressed_points)
+    x, y = area.map(drawing.strokes[0].points[0], 2.5)
+    assert pressed_points[0] == (origin.x+x, origin.y+y)
+    drawing.drawing_rect = Rect(250, 100, 100, 80)
+    backend.events.clear()
+    with pytest.raises(SafetyError, match="границы"):
+        DrawingExecutor(backend, profile).run(drawing)
+    assert not backend.events

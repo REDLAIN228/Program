@@ -130,7 +130,10 @@ class DrawingExecutor:
         for px, py in route:
             destination = (px+ox, py+oy)
             length = math.dist(origin, destination)
-            steps = max(1, math.ceil(length/6))
+            # Turbo uses larger mouse-up samples rather than flooding Windows
+            # with waits shorter than its scheduling resolution.
+            sample = max(6, plan.timing.control_speed*.01)
+            steps = max(1, math.ceil(length/sample))
             for index in range(1, steps+1):
                 self._move(round(origin[0]+(destination[0]-origin[0])*index/steps),
                            round(origin[1]+(destination[1]-origin[1])*index/steps))
@@ -300,8 +303,10 @@ class DrawingExecutor:
                 self.profile.brush_slider.point(brush.pixels)
         if require_verified and not self.profile.verified:
             raise SafetyError("Сначала выполните TEST DRAW и подтвердите калибровку")
-        if plan.canvas_size != (self.profile.canvas.width, self.profile.canvas.height):
-            raise SafetyError("План создан для другого размера холста. Выполните PREVIEW заново.")
+        try:
+            canvas = plan.drawing_area(self.profile.canvas)
+        except ValueError as exc:
+            raise SafetyError(str(exc)) from exc
         colors = {s.rgb for s in self.profile.swatches}
         widths = {b.pixels for b in self.profile.brushes}
         for stroke in plan.strokes:
@@ -312,7 +317,7 @@ class DrawingExecutor:
             if not stroke.points:
                 raise SafetyError("Пустой штрих")
             for p in stroke.points:
-                self.profile.canvas.map(p, stroke.width / 2 + 1)
+                canvas.map(p, stroke.width / 2 + 1)
 
     def run(self, plan: Plan, progress=lambda *_: None, state=lambda *_: None,
             time_limit: float | None = None, require_verified: bool = True) -> str:
@@ -398,7 +403,7 @@ class DrawingExecutor:
         if self._width != stroke.width or (feedback and color_changed):
             self._set_brush(stroke.width, plan)
         assert self._session
-        canvas = self.profile.canvas
+        canvas = plan.drawing_area(self.profile.canvas)
         local_points = [canvas.map(p, stroke.width / 2 + 1) for p in stroke.points]
         points = [(x + self._session.client.x, y + self._session.client.y) for x, y in local_points]
         self._travel(*points[0], plan)

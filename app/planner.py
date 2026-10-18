@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from app.imaging import prepare
-from app.models import Plan, Progress, RGB, Stroke, Timing, estimate_plan
+from app.models import Plan, Progress, RGB, Rect, Stroke, Timing, estimate_plan
 from app.painter import complete_coverage, shape_strokes
 from app.raster import draw_stroke
 
@@ -113,6 +113,16 @@ def render_plan(plan: Plan, size: tuple[int, int] | None = None) -> Image.Image:
     draw = ImageDraw.Draw(image)
     for stroke in plan.strokes:
         draw_stroke(draw, stroke, plan.canvas_size, size, stroke.color)
+    return image
+
+
+def render_placement(plan: Plan) -> Image.Image:
+    """Show the selected drawing at its actual size on the entire canvas."""
+    if plan.drawing_rect is None:
+        return render_plan(plan)
+    area = plan.drawing_area(Rect(0, 0, *plan.target_canvas_size))
+    image = Image.new("RGB", plan.target_canvas_size, "white")
+    image.paste(render_plan(plan), (area.x, area.y))
     return image
 
 

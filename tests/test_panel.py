@@ -40,10 +40,17 @@ def test_ui_import_preview_calibration_test_and_run_end_to_end(qapp, tmp_path, m
     source.save(path)
     panel.load_image(str(path))
     panel.limit.setCurrentText("Unlimited")
+    panel.drawing_format.setCurrentText("Свой размер")
+    panel.drawing_width.setValue(120)
+    panel.drawing_height.setValue(160)
+    panel.speed.setCurrentText("Turbo · 7")
     panel.make_plan()
     wait_until(qapp, lambda: panel.job is None)
     assert not errors
     assert panel.plan is not None and len(panel.plan.strokes) > 0
+    assert panel.plan.canvas_size == (120, 160)
+    assert panel.plan.drawing_rect is not None
+    assert panel.draw_view._image.size == (panel.profile.canvas.width, panel.profile.canvas.height)
     panel.plan.timing = Timing(.00001, .00001, 1000000, 50)
     panel.run_plan()
     wait_until(qapp, lambda: panel.job is None and not panel._pending_run)
@@ -51,6 +58,7 @@ def test_ui_import_preview_calibration_test_and_run_end_to_end(qapp, tmp_path, m
     assert panel._state == "FINISHED"
     assert panel.local_canvas.received_segments > 0
     assert panel.store.settings()["last_profile"] == panel.profile.name
+    assert panel.store.settings()["draw_width"] == 120
     assert list((panel.store.root / "images").glob("*.png"))
     assert list((panel.store.root / "plans").glob("*.json"))
     assert "finished" in (panel.store.root / "history.json").read_text()

@@ -215,11 +215,16 @@ class Timing:
     @classmethod
     def preset(cls, name: str) -> Timing:
         return {"Slow": cls(.035, .35, 180, 2), "Safe": cls(.020, .15, 500, 4),
-                "Normal": cls(), "Fast": cls(.008, .06, 1400, 6)}[name]
+                "Normal": cls(), "Fast": cls(.008, .06, 1400, 6),
+                "Turbo · 5": cls(.006, .05, 1800, 5),
+                "Turbo · 6": cls(.005, .05, 2200, 5),
+                "Turbo · 7": cls(.004, .05, 2600, 5)}[name]
 
     @property
     def control_speed(self) -> float:
-        return min(600, self.pixels_per_second)
+        if self.pixels_per_second <= 1400:
+            return min(600, self.pixels_per_second)
+        return min(1400, 600+(self.pixels_per_second-1400)/1.5)
 
     @property
     def control_hold(self) -> float:
@@ -264,6 +269,22 @@ class Plan:
     schema: int = 1
     color_clicks: int = 1
     brush_clicks: int = 1
+    drawing_rect: Rect | None = None  # Coordinates relative to the full canvas.
+    target_canvas_size: tuple[int, int] | None = None
+
+    def drawing_area(self, canvas: Rect) -> Rect:
+        if self.drawing_rect is None and self.target_canvas_size is None:
+            if self.canvas_size != (canvas.width, canvas.height):
+                raise ValueError("План создан для другого размера холста. Выполните PREVIEW заново.")
+            return canvas
+        r = self.drawing_rect
+        if r is None or self.target_canvas_size != (canvas.width, canvas.height):
+            raise ValueError("Формат рисунка относится к другому холсту. Выполните PREVIEW заново.")
+        if (any(type(n) is not int for n in (r.x, r.y, r.width, r.height))
+                or (r.width, r.height) != self.canvas_size or min(r.width, r.height) < 32
+                or r.x < 0 or r.y < 0 or r.x+r.width > canvas.width or r.y+r.height > canvas.height):
+            raise ValueError("Размер или положение рисунка выходит за границы холста")
+        return Rect(canvas.x+r.x, canvas.y+r.y, r.width, r.height)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -297,9 +318,17 @@ class Plan:
         if any(type(n) is not int or not 1 <= n <= 12 for n in [color_clicks, brush_clicks]):
             raise ValueError("Некорректное число нажатий элементов управления")
         estimate = estimate_plan(strokes, size, timing, color_clicks, brush_clicks)
-        return cls(size, strokes, timing, estimate, d["source_hash"],
+        plan = cls(size, strokes, timing, estimate, d["source_hash"],
                    [tuple(c) for c in d["palette"]], d.get("notes", []),
-                   color_clicks=color_clicks, brush_clicks=brush_clicks)
+                   color_clicks=color_clicks, brush_clicks=brush_clicks,
+                   drawing_rect=Rect(**d["drawing_rect"]) if d.get("drawing_rect") is not None else None,
+                   target_canvas_size=tuple(d["target_canvas_size"]) if d.get("target_canvas_size") is not None else None)
+        if plan.target_canvas_size is not None or plan.drawing_rect is not None:
+            target = plan.target_canvas_size
+            if (target is None or len(target) != 2 or any(type(n) is not int or not 32 <= n <= 8192 for n in target)):
+                raise ValueError("Некорректный размер целевого холста")
+            plan.drawing_area(Rect(0, 0, *target))
+        return plan
 
 
 def estimate_plan(strokes: list[Stroke], size: tuple[int, int], timing: Timing,

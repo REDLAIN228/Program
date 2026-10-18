@@ -11,14 +11,15 @@ from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QMainWindow, QMenu, QMessageBox, QPushButton, QProgressBar,
-                               QScrollArea, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+                               QScrollArea, QSpinBox, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from app.ai import OpenAIImageProvider, ProviderSettings, read_key, save_key
 from app.automation import DrawingExecutor, SafetyError
 from app.imaging import blank_white_canvas, open_image
 from app.game_profile import selection_clicks
+from app.layout import FORMATS, drawing_rect
 from app.models import Plan, Rect, Stroke, Timing, estimate_plan
-from app.planner import PlanOptions, build_plan, render_plan
+from app.planner import PlanOptions, build_plan, render_plan, render_placement
 from app.storage import Store
 from app.ui.calibration import CalibrationDialog, ClickImage
 from app.ui.common import Job, Preview, STYLE, fit_window
@@ -61,7 +62,7 @@ class MainWindow(QMainWindow):
         self.store = store or Store()
         self.settings = self.store.settings()
         self.profiles = self.store.profiles()
-        self.setWindowTitle("ANIME DRAWER · NORMAL CONTROL")
+        self.setWindowTitle("ANIME DRAWER · TURBO + SIZE")
         self.setStyleSheet(STYLE)
         self.setWindowOpacity(.98)
         self.setAcceptDrops(True)
@@ -86,11 +87,15 @@ class MainWindow(QMainWindow):
         fit_window(self, 620, 840)
         self._loading = True
         for key, control in [("draw_style", self.style), ("draw_quality", self.quality),
-                             ("draw_speed", self.speed), ("draw_limit", self.limit), ("draw_brushwork", self.brushwork)]:
+                             ("draw_speed", self.speed), ("draw_limit", self.limit), ("draw_brushwork", self.brushwork),
+                             ("draw_format", self.drawing_format), ("draw_scale", self.drawing_scale)]:
             if self.settings.get(key) and control.findText(self.settings[key]) >= 0:
                 control.setCurrentText(self.settings[key])
         self.crop_fit.setChecked(bool(self.settings.get("draw_crop", False)))
         self.remove_bg.setChecked(bool(self.settings.get("draw_remove_bg", False)))
+        self.drawing_width.setValue(int(self.settings.get("draw_width", 300)))
+        self.drawing_height.setValue(int(self.settings.get("draw_height", 300)))
+        self._format_changed()
         self._loading = False
         self.icon = FloatingIcon()
         self.icon.opened.connect(self.toggle)
@@ -153,9 +158,10 @@ class MainWindow(QMainWindow):
                                "Размер результата ограничен выбранным холстом.")
         self.quality.setCurrentText("Balanced")
         self.speed = QComboBox()
-        self.speed.addItems(["Slow", "Safe", "Normal", "Fast"])
-        self.speed.setCurrentText("Normal")
-        self.speed.setToolTip("Normal: на две ступени выше Slow. Скорость применяется и к проверке кисти.")
+        self.speed.addItems(["Slow", "Safe", "Normal", "Fast", "Turbo · 5", "Turbo · 6", "Turbo · 7"])
+        self.speed.setCurrentText("Turbo · 7")
+        self.speed.setToolTip("7 ступеней: Normal — третья, Turbo · 7 — на четыре выше. "
+                             "Ожидание подтверждения размера кисти сохраняется.")
         self.limit = QComboBox()
         self.limit.addItems(["Auto · 165 s", "60 seconds", "120 seconds", "165 seconds", "Unlimited",
                              "240 seconds", "300 seconds"])
@@ -163,6 +169,26 @@ class MainWindow(QMainWindow):
         options.addWidget(self.speed)
         options.addWidget(self.limit)
         form.addRow("QUALITY / SPEED / TIME", options)
+        sizing = QHBoxLayout()
+        self.drawing_format = QComboBox()
+        self.drawing_format.addItems(list(FORMATS))
+        self.drawing_scale = QComboBox()
+        self.drawing_scale.addItems(["25%", "50%", "75%", "100%"])
+        self.drawing_scale.setCurrentText("100%")
+        sizing.addWidget(self.drawing_format)
+        sizing.addWidget(self.drawing_scale)
+        form.addRow("ФОРМАТ / МАСШТАБ", sizing)
+        dimensions = QHBoxLayout()
+        self.drawing_width, self.drawing_height = QSpinBox(), QSpinBox()
+        for spin in (self.drawing_width, self.drawing_height):
+            spin.setRange(32, 8192)
+            spin.setValue(300)
+            spin.setSuffix(" px")
+            spin.setToolTip("Свой размер рисунка. Максимум — размер текущего холста.")
+        dimensions.addWidget(self.drawing_width)
+        dimensions.addWidget(QLabel("×"))
+        dimensions.addWidget(self.drawing_height)
+        form.addRow("СВОЙ РАЗМЕР · Ш × В", dimensions)
         self.profile_combo = QComboBox()
         form.addRow("PROFILE", self.profile_combo)
         outer.addLayout(form)
@@ -243,6 +269,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(frame)
         for control in [self.quality, self.style, self.speed, self.source, self.brushwork]:
             control.currentTextChanged.connect(self.invalidate_plan)
+        self.drawing_format.currentTextChanged.connect(self._format_changed)
+        self.drawing_scale.currentTextChanged.connect(self.invalidate_plan)
+        self.drawing_width.valueChanged.connect(self.invalidate_plan)
+        self.drawing_height.valueChanged.connect(self.invalidate_plan)
         self.crop_fit.toggled.connect(self.invalidate_plan)
         self.remove_bg.toggled.connect(self.invalidate_plan)
         self.profile_combo.currentTextChanged.connect(self.select_profile)
@@ -312,7 +342,8 @@ class MainWindow(QMainWindow):
         for action in self.actions.values():
             action.setEnabled(False)
         for control in [self.source, self.quality, self.speed, self.style, self.profile_combo,
-                        self.crop_fit, self.remove_bg, self.limit, self.brushwork]:
+                        self.crop_fit, self.remove_bg, self.limit, self.brushwork,
+                        self.drawing_format, self.drawing_scale, self.drawing_width, self.drawing_height]:
             control.setEnabled(False)
         self.run_button.setEnabled(False)
         job.progress.connect(self.job_progress)
@@ -333,8 +364,10 @@ class MainWindow(QMainWindow):
         for action in self.actions.values():
             action.setEnabled(True)
         for control in [self.source, self.quality, self.speed, self.style, self.profile_combo,
-                        self.crop_fit, self.remove_bg, self.limit, self.brushwork]:
+                        self.crop_fit, self.remove_bg, self.limit, self.brushwork,
+                        self.drawing_format, self.drawing_scale, self.drawing_width, self.drawing_height]:
             control.setEnabled(True)
+        self._update_size_controls()
         self.run_button.setEnabled(True)
         self.progress.setRange(0, 100)
         if self._state in {"PROCESSING", "GENERATING"}:
@@ -357,8 +390,21 @@ class MainWindow(QMainWindow):
             self.settings.update(draw_style=self.style.currentText(), draw_quality=self.quality.currentText(),
                                  draw_speed=self.speed.currentText(), draw_limit=self.limit.currentText(),
                                  draw_brushwork=self.brushwork.currentText(),
+                                 draw_format=self.drawing_format.currentText(), draw_scale=self.drawing_scale.currentText(),
+                                 draw_width=self.drawing_width.value(), draw_height=self.drawing_height.value(),
                                  draw_crop=self.crop_fit.isChecked(), draw_remove_bg=self.remove_bg.isChecked())
             self.store.save_settings(self.settings)
+
+    def _update_size_controls(self):
+        custom = self.drawing_format.currentText() == "Свой размер"
+        free = not self.busy()
+        self.drawing_width.setEnabled(custom and free)
+        self.drawing_height.setEnabled(custom and free)
+        self.drawing_scale.setEnabled(not custom and free)
+
+    def _format_changed(self, *_):
+        self._update_size_controls()
+        self.invalidate_plan()
 
     def set_original(self, image, kind="import"):
         self.original = image.convert("RGB")
@@ -687,10 +733,22 @@ class MainWindow(QMainWindow):
             return
         p = self.profile
         full_hd = self.quality.currentText() == "Full HD"
-        options = PlanOptions((p.canvas.width, p.canvas.height) if p else ((1920, 1080) if full_hd else (512, 512)),
+        target_size = (p.canvas.width, p.canvas.height) if p else ((1920, 1080) if full_hd else (512, 512))
+        try:
+            area = drawing_rect(target_size, self.drawing_format.currentText(),
+                                int(self.drawing_scale.currentText().rstrip("%")),
+                                (self.drawing_width.value(), self.drawing_height.value()))
+            widths = tuple(b.pixels for b in p.brushes) if p else ((1, 3, 9, 18, 36) if full_hd else (3, 9, 18))
+            widths = tuple(w for w in widths if w < min(area.width, area.height)-4)
+            if not widths:
+                raise ValueError("Для такого размера нет подходящей кисти. Увеличьте рисунок или добавьте тонкую кисть.")
+        except ValueError as exc:
+            self.error(str(exc))
+            return
+        options = PlanOptions((area.width, area.height),
                               self.quality.currentText(), self.style.currentText(), self.speed.currentText(),
                               self.time_limit(), [s.rgb for s in p.swatches] if p and not p.color_wheel else None,
-                              tuple(b.pixels for b in p.brushes) if p else ((1, 3, 9, 18, 36) if full_hd else (3, 9, 18)),
+                              widths,
                               self.crop_fit.isChecked(), self.remove_bg.isChecked(),
                               *(selection_clicks(p) if p else (1, 1)),
                               stroke_style="Shape" if self.brushwork.currentIndex() == 0 else "Scanline")
@@ -698,7 +756,11 @@ class MainWindow(QMainWindow):
         self.set_state("PROCESSING")
         def process(job):
             plan, processed = build_plan(original, options, job.progress.emit, job.cancel)
-            return plan, processed, render_plan(plan)
+            if (area.width, area.height) != target_size:
+                plan.drawing_rect = area
+                plan.target_canvas_size = target_size
+                plan.notes.append(f"Рисунок {area.width}×{area.height} по центру холста {target_size[0]}×{target_size[1]}.")
+            return plan, processed, render_placement(plan)
         self._start_job(Job(process, self), self._plan_ready)
 
     def _plan_ready(self, result):
@@ -706,7 +768,7 @@ class MainWindow(QMainWindow):
         self.processed_view.set_image(self.processed)
         self.draw_view.set_image(preview)
         self.previews.setCurrentIndex(2)
-        self.stats.setText(f"{self.plan.canvas_size[0]}×{self.plan.canvas_size[1]} px · "
+        self.stats.setText(f"Рисунок {self.plan.canvas_size[0]}×{self.plan.canvas_size[1]} px · "
                            f"{len(self.plan.strokes)} штрихов · {len(self.plan.palette)} цветов · "
                            f"оценка {self.plan.estimated_seconds:.1f} с (зависит от игры)")
         self.log.setText("\n".join(self.plan.notes))
@@ -718,7 +780,7 @@ class MainWindow(QMainWindow):
         if self.plan is None:
             self.error("Сначала выполните PREVIEW")
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Экспорт штрихов в размере холста", "drawing-preview.png", "PNG (*.png)")
+        path, _ = QFileDialog.getSaveFileName(self, "PNG в выбранном размере рисунка", "drawing-preview.png", "PNG (*.png)")
         if path:
             try:
                 render_plan(self.plan).save(path, format="PNG")
@@ -746,9 +808,10 @@ class MainWindow(QMainWindow):
             try:
                 plan = self.store.load_plan(path)
                 self.plan = plan
-                self.draw_view.set_image(render_plan(plan))
+                self.draw_view.set_image(render_placement(plan))
                 self.previews.setCurrentIndex(2)
-                self.stats.setText(f"Кэш: {len(plan.strokes)} штрихов · {plan.estimated_seconds:.1f} с")
+                self.stats.setText(f"Кэш: {plan.canvas_size[0]}×{plan.canvas_size[1]} px · "
+                                   f"{len(plan.strokes)} штрихов · {plan.estimated_seconds:.1f} с")
                 self.log.setText("План загружен. RUN проверит соответствие текущей калибровке.")
             except Exception as exc:
                 self.error(str(exc))

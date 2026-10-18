@@ -300,7 +300,8 @@ def test_size_is_rechecked_after_changing_color_even_if_width_is_cached():
     assert backend.drawing == [((0, 0, 0), 1), ((255, 0, 0), 1)]
 
 
-def test_slow_mouse_up_travel_is_paced_and_routes_around_paid_tab(monkeypatch):
+@pytest.mark.parametrize("speed,max_step", [("Slow", 7), ("Turbo · 7", 15)])
+def test_mouse_up_travel_is_paced_and_routes_around_paid_tab(monkeypatch, speed, max_step):
     profile = screenshot_profile(game_state())
     backend = TabbedBackend(profile)
     executor = DrawingExecutor(backend, profile)
@@ -316,11 +317,11 @@ def test_slow_mouse_up_travel_is_paced_and_routes_around_paid_tab(monkeypatch):
         original_move(x, y)
     backend.move = record_move
     monkeypatch.setattr(executor, "_wait", delays.append)
-    plan = Plan((555, 555), [], Timing.preset("Slow"), 0, "check", [])
+    plan = Plan((555, 555), [], Timing.preset(speed), 0, "check", [])
     executor._travel(ox+destination[0], oy+destination[1], plan)
     import math
-    assert len(moves) > 100 and moves[-1] == destination
-    assert all(math.dist(a, b) <= 7 for a, b in zip([start]+moves, moves))
+    assert len(moves) > 30 and moves[-1] == destination
+    assert all(math.dist(a, b) <= max_step for a, b in zip([start]+moves, moves))
     assert not any(r.contains(*point) for r in profile.forbidden for point in moves)
     assert sum(delays) >= math.dist(start, destination)/plan.timing.control_speed
     assert not backend.clicks
