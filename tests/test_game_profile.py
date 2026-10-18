@@ -298,3 +298,61 @@ def test_size_is_rechecked_after_changing_color_even_if_width_is_cached():
     plan = Plan((555, 555), strokes, Timing(), 1, "test", [])
     assert DrawingExecutor(backend, profile).run(plan) == "finished"
     assert backend.drawing == [((0, 0, 0), 1), ((255, 0, 0), 1)]
+
+
+def test_slow_mouse_up_travel_is_paced_and_routes_around_paid_tab(monkeypatch):
+    profile = screenshot_profile(game_state())
+    backend = TabbedBackend(profile)
+    executor = DrawingExecutor(backend, profile)
+    executor._session = game_state()
+    ox, oy = game_state().client.x, game_state().client.y
+    start, destination = (1330, 120), profile.color_tab
+    backend.cursor_position = lambda: (ox+start[0], oy+start[1])
+    moves, delays = [], []
+    original_move = backend.move
+    def record_move(x, y):
+        assert not backend.pressed
+        moves.append((x-ox, y-oy))
+        original_move(x, y)
+    backend.move = record_move
+    monkeypatch.setattr(executor, "_wait", delays.append)
+    plan = Plan((555, 555), [], Timing.preset("Slow"), 0, "check", [])
+    executor._travel(ox+destination[0], oy+destination[1], plan)
+    import math
+    assert len(moves) > 100 and moves[-1] == destination
+    assert all(math.dist(a, b) <= 7 for a, b in zip([start]+moves, moves))
+    assert not any(r.contains(*point) for r in profile.forbidden for point in moves)
+    assert sum(delays) >= math.dist(start, destination)/plan.timing.control_speed
+    assert not backend.clicks
+
+
+def test_stop_during_mouse_up_travel_prevents_click():
+    profile = screenshot_profile(game_state())
+    backend = TabbedBackend(profile)
+    executor = DrawingExecutor(backend, profile)
+    executor._session = game_state()
+    backend.cursor_position = lambda: (game_state().client.x+900, game_state().client.y+500)
+    move = backend.move
+    def stop_after_move(x, y):
+        move(x, y)
+        executor.stop()
+    backend.move = stop_after_move
+    plan = Plan((555, 555), [], Timing.preset("Slow"), 0, "check", [])
+    with pytest.raises(InterruptedError):
+        executor._click(profile.color_tab, plan)
+    assert not backend.clicks and not backend.pressed
+
+
+def test_delayed_size_readout_gets_time_to_stabilize_without_dragging(monkeypatch):
+    profile = screenshot_profile(game_state())
+    backend = TabbedBackend(profile)
+    executor = DrawingExecutor(backend, profile)
+    executor._session = game_state()
+    readings = iter([None]*6+[88, 88])
+    backend.read_brush_size = lambda region: next(readings)
+    delays = []
+    monkeypatch.setattr(executor, "_wait", delays.append)
+    plan = Plan((555, 555), [], Timing.preset("Slow"), 0, "check", [])
+    assert executor._read_brush(1, plan) == 88
+    assert sum(delays) >= 1
+    assert not backend.clicks and not backend.drawing

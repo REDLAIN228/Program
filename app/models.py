@@ -214,8 +214,20 @@ class Timing:
 
     @classmethod
     def preset(cls, name: str) -> Timing:
-        return {"Safe": cls(.020, .15, 500, 4),
+        return {"Slow": cls(.035, .35, 180, 2), "Safe": cls(.020, .15, 500, 4),
                 "Normal": cls(), "Fast": cls(.008, .06, 1400, 6)}[name]
+
+    @property
+    def control_speed(self) -> float:
+        return min(600, self.pixels_per_second)
+
+    @property
+    def control_hold(self) -> float:
+        return max(.08, self.event * 3)
+
+    @property
+    def control_settle(self) -> float:
+        return max(.20, self.settle)
 
 
 @dataclass(frozen=True)
@@ -293,12 +305,25 @@ class Plan:
 def estimate_plan(strokes: list[Stroke], size: tuple[int, int], timing: Timing,
                   color_clicks: int = 1, brush_clicks: int = 1) -> float:
     total = 0.0
-    prev_color = prev_width = None
+    prev_color = prev_width = prev_end = None
     for s in strokes:
         total += s.seconds(size, timing)
+        feedback_controls = brush_clicks == 12
+        # The feedback adapter paces mouse-up travel and verifies size again
+        # after each color change. UI travel uses a nominal 200 px per click;
+        # this remains an estimate, not recognition of the game's round timer.
+        click_seconds = (2*timing.control_hold + timing.control_settle + 200/timing.control_speed
+                         if feedback_controls else timing.settle + 3*timing.event)
         if s.color != prev_color:
-            total += color_clicks * (timing.settle + 3 * timing.event)
-        if s.width != prev_width:
-            total += brush_clicks * (timing.settle + 3 * timing.event)
+            total += color_clicks * click_seconds
+        if s.width != prev_width or (feedback_controls and s.color != prev_color):
+            total += brush_clicks * click_seconds
+        if feedback_controls:
+            if prev_end is None or s.color != prev_color or s.width != prev_width:
+                total += size[0]/timing.control_speed  # Return from controls to canvas.
+            else:
+                total += math.hypot((s.points[0][0]-prev_end[0])*size[0],
+                                    (s.points[0][1]-prev_end[1])*size[1])/timing.control_speed
         prev_color, prev_width = s.color, s.width
+        prev_end = s.points[-1]
     return total * 1.15  # Scheduling and color-verification reserve; still only an estimate.

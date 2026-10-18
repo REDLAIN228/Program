@@ -51,6 +51,7 @@ class DrawingExecutor:
         self._width = None
         self._tool_selected = False
         self._deadline = None
+        self._pointer = None
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -98,22 +99,59 @@ class DrawingExecutor:
         if any(r.contains(x-self._session.client.x, y-self._session.client.y) for r in self.profile.forbidden):
             raise SafetyError("Донатная область исключена из управления")
         self.backend.move(x, y)
+        self._pointer = (x, y)
+
+    def _travel(self, x: int, y: int, plan: Plan) -> None:
+        """Move with the button released; drawing samples still use _move directly."""
+        slider = self.profile.brush_slider
+        if not slider or not slider.readout:
+            self._move(x, y)
+            return
+        self._guard()
+        position = getattr(self.backend, "cursor_position", None)
+        origin = position() if position else self._pointer
+        # The first cursor position can be outside the game. Enter the target
+        # without clicking; all subsequent travel is sampled and checked.
+        if origin is None or not self.backend.point_belongs_to_target(*origin):
+            self._move(x, y)
+            return
+        assert self._session
+        if any(r.contains(origin[0]-self._session.client.x, origin[1]-self._session.client.y)
+               for r in self.profile.forbidden):
+            self._move(x, y)
+            return
+        from app.cursor import travel_path
+        ox, oy = self._session.client.x, self._session.client.y
+        try:
+            route = travel_path((origin[0]-ox, origin[1]-oy), (x-ox, y-oy),
+                                Rect(0, 0, *self.profile.client_size), self.profile.forbidden)
+        except ValueError as exc:
+            raise SafetyError(str(exc)) from exc
+        for px, py in route:
+            destination = (px+ox, py+oy)
+            length = math.dist(origin, destination)
+            steps = max(1, math.ceil(length/6))
+            for index in range(1, steps+1):
+                self._move(round(origin[0]+(destination[0]-origin[0])*index/steps),
+                           round(origin[1]+(destination[1]-origin[1])*index/steps))
+                self._wait(length/steps/plan.timing.control_speed)
+            origin = destination
 
     def _click(self, point: tuple[int, int], plan: Plan) -> None:
         assert self._session
         x, y = point
-        self._move(self._session.client.x + x, self._session.client.y + y)
+        self._travel(self._session.client.x + x, self._session.client.y + y, plan)
         self._guard()
         feedback = self.profile.brush_slider is not None and self.profile.brush_slider.readout is not None
         if feedback:
-            self._wait(.04)  # Allow Roblox a frame to process the cursor move.
+            self._wait(plan.timing.control_hold)
         self._guard()
         try:
             self.backend.down()
-            self._wait(max(.05, plan.timing.event) if feedback else plan.timing.event)
+            self._wait(plan.timing.control_hold if feedback else plan.timing.event)
         finally:
             self.backend.up()
-        self._wait(max(.10, plan.timing.settle) if feedback else plan.timing.settle)
+        self._wait(plan.timing.control_settle if feedback else plan.timing.settle)
 
     def _brush_failure(self, expected, observed, reason):
         diagnostic = getattr(self.backend, "save_size_diagnostic", None)
@@ -127,7 +165,7 @@ class DrawingExecutor:
         raise SafetyError(f"Размер кисти: запрошен {expected}, в игре {actual}. {reason} "
                           "Рисование остановлено до штриха."+path)
 
-    def _read_brush(self, expected):
+    def _read_brush(self, expected, plan):
         slider = self.profile.brush_slider
         assert slider and slider.readout and self._session
         reader = getattr(self.backend, "read_brush_size", None)
@@ -136,7 +174,7 @@ class DrawingExecutor:
         r = slider.readout
         area = Rect(self._session.client.x+r.x, self._session.client.y+r.y, r.width, r.height)
         previous = None
-        for attempt in range(5):
+        for attempt in range(12):
             self._guard()
             for x, y in [(area.x, area.y), (area.x+area.width-1, area.y+area.height-1)]:
                 if not self.backend.point_belongs_to_target(x, y):
@@ -145,7 +183,7 @@ class DrawingExecutor:
             if value is not None and slider.minimum <= value <= slider.maximum and value == previous:
                 return value
             previous = value
-            self._wait(.06)
+            self._wait(max(.15, plan.timing.control_settle/2))
         self._brush_failure(expected, previous, "Число не распознано уверенно или ещё меняется.")
 
     def _drag_slider(self, destination, plan, feedback):
@@ -161,23 +199,25 @@ class DrawingExecutor:
                 raise SafetyError("Не найден синий бегунок бесплатного размера кисти. "
                                   "Откройте Цвет → Колесо, закройте список стилей и повторите TEST DRAW.")
             origin = found[0]-ox, found[1]-oy
-        self._move(ox+origin[0], oy+origin[1])
+        self._travel(ox+origin[0], oy+origin[1], plan)
         if feedback:
-            self._wait(.06)
+            self._wait(plan.timing.control_settle)
         self._guard()
         try:
             self.backend.down()
-            self._wait(.08 if feedback else plan.timing.event)
-            steps = max(1, math.ceil(math.dist(origin, destination)/6))
+            self._wait(plan.timing.control_hold if feedback else plan.timing.event)
+            length = math.dist(origin, destination)
+            steps = max(1, math.ceil(length/3 if feedback else length/6))
             for i in range(1, steps+1):
                 self._move(ox+round(origin[0]+(destination[0]-origin[0])*i/steps),
                            oy+round(origin[1]+(destination[1]-origin[1])*i/steps))
-                self._wait(.025 if feedback else plan.timing.event)
+                self._wait(max(.025, length/steps/plan.timing.control_speed)
+                           if feedback else plan.timing.event)
             if feedback:
-                self._wait(.05)
+                self._wait(plan.timing.control_hold)
         finally:
             self.backend.up()
-        self._wait(max(.12, plan.timing.settle) if feedback else plan.timing.settle)
+        self._wait(plan.timing.control_settle if feedback else plan.timing.settle)
 
     def _set_brush(self, width, plan):
         slider = self.profile.brush_slider
@@ -193,14 +233,14 @@ class DrawingExecutor:
             self._drag_slider(slider.point(width), plan, False)
             self._width = width
             return
-        current = self._read_brush(width)
+        current = self._read_brush(width, plan)
         if current != width:
             # The direct position is only an initial guess; the displayed number is authoritative.
             destination = slider.point(width)
             low, high = min(slider.start[0], slider.end[0]), max(slider.start[0], slider.end[0])
             for attempt in range(4):
                 self._drag_slider(destination, plan, True)
-                current = self._read_brush(width)
+                current = self._read_brush(width, plan)
                 if current == width or abs(current-width) <= 8:
                     break
                 if current < width:
@@ -215,7 +255,7 @@ class DrawingExecutor:
                 arrow = slider.increase if current < width else slider.decrease
                 self._click(arrow, plan)
                 clicks += 1
-                observed = self._read_brush(width)
+                observed = self._read_brush(width, plan)
                 if observed == current:
                     self._brush_failure(width, observed, "Бесплатная стрелка размера не сработала.")
                 current = observed
@@ -230,7 +270,7 @@ class DrawingExecutor:
         for width in widths:
             self.profile.brush_slider.point(width)
         self._session = self._guard()
-        self._deadline = time.monotonic()+60
+        self._deadline = time.monotonic()+120
         try:
             for index, width in enumerate(widths):
                 if width not in {b.pixels for b in self.profile.brushes}:
@@ -361,7 +401,9 @@ class DrawingExecutor:
         canvas = self.profile.canvas
         local_points = [canvas.map(p, stroke.width / 2 + 1) for p in stroke.points]
         points = [(x + self._session.client.x, y + self._session.client.y) for x, y in local_points]
-        self._move(*points[0])
+        self._travel(*points[0], plan)
+        if feedback:
+            self._wait(plan.timing.control_hold)
         self._guard()
         try:
             self.backend.down()

@@ -76,6 +76,8 @@ if os.name == "nt":
 
     user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
     user32.SendInput.restype = wintypes.UINT
+    user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+    user32.GetCursorPos.restype = wintypes.BOOL
 
 
 def enable_dpi_awareness() -> None:
@@ -178,6 +180,12 @@ class Win32Backend:
         ax, ay = normalize_absolute(x, y, Rect(sx, sy, sw, sh))
         self._send(0x8000 | 0x4000 | 0x0001, ax, ay)
 
+    def cursor_position(self):
+        point = wintypes.POINT()
+        if not user32.GetCursorPos(ctypes.byref(point)):
+            raise SafetyError("Windows не вернула положение курсора")
+        return point.x, point.y
+
     def down(self):
         self._send(0x0002)
 
@@ -210,7 +218,10 @@ class Win32Backend:
             shot = capture.grab({"left": region.x, "top": region.y,
                                  "width": region.width, "height": region.height})
         self._size_image = Image.frombytes("RGB", shot.size, shot.rgb)
-        return read_size(self._size_image)
+        self._size_region = region
+        value = read_size(self._size_image)
+        self._size_values = (getattr(self, "_size_values", [])+[value])[-12:]
+        return value
 
     def save_size_diagnostic(self, expected, observed):
         from app.storage import data_directory, write_json
@@ -218,7 +229,15 @@ class Win32Backend:
         directory.mkdir(parents=True, exist_ok=True)
         if getattr(self, "_size_image", None) is not None:
             self._size_image.save(directory/"brush-size.png")
-        write_json(directory/"brush-size.json", {"expected": expected, "observed": observed})
+        from dataclasses import asdict
+        state = self.snapshot()
+        region = getattr(self, "_size_region", None)
+        write_json(directory/"brush-size.json", {
+            "expected": expected, "observed": observed,
+            "recent_readings": getattr(self, "_size_values", []),
+            "screen_region": asdict(region) if region else None,
+            "client": asdict(state.client), "dpi": state.dpi,
+        })
         return str(directory/"brush-size.png")
 
 

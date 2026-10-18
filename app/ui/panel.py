@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
         self.store = store or Store()
         self.settings = self.store.settings()
         self.profiles = self.store.profiles()
-        self.setWindowTitle("ANIME DRAWER · SIZE CHECK")
+        self.setWindowTitle("ANIME DRAWER · SLOW CONTROL")
         self.setStyleSheet(STYLE)
         self.setWindowOpacity(.98)
         self.setAcceptDrops(True)
@@ -153,8 +153,9 @@ class MainWindow(QMainWindow):
                                "Размер результата ограничен выбранным холстом.")
         self.quality.setCurrentText("Balanced")
         self.speed = QComboBox()
-        self.speed.addItems(["Safe", "Normal", "Fast"])
-        self.speed.setCurrentText("Normal")
+        self.speed.addItems(["Slow", "Safe", "Normal", "Fast"])
+        self.speed.setCurrentText("Slow")
+        self.speed.setToolTip("Slow: медленные штрихи и плавное управление. Для Roblox начните с него.")
         self.limit = QComboBox()
         self.limit.addItems(["Auto · 165 s", "60 seconds", "120 seconds", "165 seconds", "Unlimited",
                              "240 seconds", "300 seconds"])
@@ -813,7 +814,7 @@ class MainWindow(QMainWindow):
                 if not sizes:
                     available = sorted({b.pixels for b in p.brushes})
                     sizes = available[:3]+available[:1]
-                plan = Plan((p.canvas.width, p.canvas.height), [], Timing.preset("Safe"), 0, "brush-check", [])
+                plan = Plan((p.canvas.width, p.canvas.height), [], Timing.preset("Slow"), 0, "brush-check", [])
                 job = Job(lambda j: executor.check_brushes(plan, sizes, j.progress.emit), self)
                 def finished(message):
                     self.show()
@@ -821,7 +822,7 @@ class MainWindow(QMainWindow):
                     self.log.setText(message)
                     self.set_state("IDLE")
                 self._start_job(job, finished)
-            QTimer.singleShot(500, launch)
+            QTimer.singleShot(1000, launch)
         except Exception as exc:
             self.error(str(exc))
 
@@ -850,7 +851,7 @@ class MainWindow(QMainWindow):
             else:
                 color = min(p.swatches, key=lambda s: sum(s.rgb)).rgb
                 strokes = [Stroke(((.42, .50), (.58, .50)), color, min(b.pixels for b in p.brushes))]
-            timing = Timing.preset("Safe")
+            timing = Timing.preset("Slow" if p.brush_slider and p.brush_slider.readout else "Safe")
             clicks = selection_clicks(p)
             plan = Plan((p.canvas.width, p.canvas.height), strokes, timing,
                         estimate_plan(strokes, (p.canvas.width, p.canvas.height), timing, *clicks), "test",
@@ -870,7 +871,7 @@ class MainWindow(QMainWindow):
             self.executor = None
             raise
         # Give the target time to repaint after app/overlay windows are hidden.
-        QTimer.singleShot(500, lambda: self._launch_draw(executor, plan, limit, test))
+        QTimer.singleShot(1000, lambda: self._launch_draw(executor, plan, limit, test))
 
     def _launch_draw(self, executor, plan, limit, test):
         self._pending_run = False
