@@ -7,7 +7,20 @@ from app.models import Brush, BrushSlider, Calibration, ColorWheel, Rect
 
 PAID_AREAS = [Rect(654, 87, 111, 27), Rect(1165, 690, 201, 78)]
 PROFILE_NAME = "Roblox · персонаж слева · 1366×768"
-FREE_SLIDER_ADAPTER = "roblox-free-slider-v3"
+FREE_SLIDER_ADAPTER = "roblox-free-slider-v4"
+LEGACY_ADAPTERS = {"roblox-free-slider-v1", "roblox-free-slider-v2", "roblox-free-slider-v3"}
+
+
+def opacity_slider():
+    # Confirmed by user: left = 100%, right = 1%.
+    return BrushSlider((720, 454), (590, 454), 1, 100, Rect(690, 419, 46, 21),
+                       decrease=(747, 454), increase=(561, 454))
+
+
+def screenshot_wheel():
+    # Saturated hue is LEFT, white is RIGHT. Stay inside the rounded corners.
+    return ColorWheel((644, 209), (643, 135), Rect(605, 170, 78, 79),
+                      value_reset=(746, 132), mode_button=(573, 317), saturation_reversed=True, inset=3)
 
 
 def feedback_slider(slider):
@@ -20,7 +33,7 @@ def restrict_game_profile(profile: Calibration) -> bool:
     """Migrate the old screenshot preset before it can touch the paid size tab."""
     old_geometry = (profile.canvas == Rect(785, 114, 555, 555) and profile.color_wheel is not None
                     and profile.color_wheel.center == (644, 209))
-    if profile.name != PROFILE_NAME and profile.adapter not in {"roblox-free-slider-v1", "roblox-free-slider-v2", FREE_SLIDER_ADAPTER} and not old_geometry:
+    if profile.name != PROFILE_NAME and profile.adapter not in LEGACY_ADAPTERS | {FREE_SLIDER_ADAPTER} and not old_geometry:
         return False
     if profile.client_size != (1366, 768) or "roblox" not in profile.target_process.casefold():
         return False
@@ -30,8 +43,16 @@ def restrict_game_profile(profile: Calibration) -> bool:
                        and (profile.brush_slider.minimum, profile.brush_slider.maximum) == (1, 100))
     needs_feedback = profile.brush_slider is None or profile.brush_slider.readout is None
     needs_color_check = (old_geometry and profile.color_indicator is None)
+    update_geometry = (profile.adapter != FREE_SLIDER_ADAPTER and old_geometry)
     changed = (profile.brush_slider is None or profile.size_tab is not None or needs_feedback
-               or profile.forbidden != PAID_AREAS or needs_fine_brush or wrong_old_range or needs_color_check)
+               or profile.forbidden != PAID_AREAS or needs_fine_brush or wrong_old_range or needs_color_check
+               or update_geometry)
+    if update_geometry:
+        profile.color_wheel = screenshot_wheel()
+        profile.opacity_slider = opacity_slider()
+        profile.color_tolerance = 25
+        if profile.character == Rect(145, 250, 340, 500):
+            profile.character = Rect(70, 215, 355, 465)
     if needs_color_check:
         profile.color_indicator = (565, 283)
     if profile.brush_slider is None:
@@ -61,10 +82,9 @@ def screenshot_profile(state: WindowState) -> Calibration:
         PROFILE_NAME, state.window_class, state.process, (1366, 768), state.dpi,
         Rect(785, 114, 555, 555), [],
         [Brush(n, (590, 404)) for n in (1, 2, 6, 16, 32, 64)],
-        brush_tool=(868, 720), character=Rect(145, 250, 340, 500),
-        color_indicator=(565, 283),
-        color_wheel=ColorWheel((644, 209), (643, 135), Rect(606, 171, 75, 76),
-                               value_reset=(746, 132), mode_button=(573, 317)),
+        brush_tool=(868, 720), character=Rect(70, 215, 355, 465),
+        color_indicator=(565, 283), color_tolerance=25,
+        color_wheel=screenshot_wheel(), opacity_slider=opacity_slider(),
         color_tab=(593, 100), brush_slider=feedback_slider(BrushSlider((590, 404), (720, 404), 1, 256)),
         forbidden=list(PAID_AREAS), adapter=FREE_SLIDER_ADAPTER)
     profile.validate()
@@ -73,6 +93,6 @@ def screenshot_profile(state: WindowState) -> Calibration:
 
 def selection_clicks(profile: Calibration) -> tuple[int, int]:
     wheel = profile.color_wheel
-    color = ((2 + bool(wheel.value_reset) + bool(wheel.mode_button)) if wheel else 1)
-    return int(color + bool(profile.color_tab)), ((12 if profile.brush_slider.readout else 2)
+    color = 2 if wheel else 1  # Hue + square; tab/mode/brightness are session setup.
+    return color, ((12 if profile.brush_slider.readout else 2)
                                                if profile.brush_slider else 1 + bool(profile.size_tab))

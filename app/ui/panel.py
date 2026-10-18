@@ -808,10 +808,11 @@ class MainWindow(StudioActions, QMainWindow):
                               priority_mode=self.priority_mode.currentText(), detect_faces=self.detect_faces.isChecked(),
                               priority_regions=tuple(self.priority_regions), vector_accuracy=self.vector_accuracy.currentText(),
                               safety_buffer=self.safety_buffer.value(), smart_finish=self.smart_finish.isChecked())
+        options.opacity, options.game_delay = self.brush_opacity.value(), self.game_delay.value()/1000
         from app.smart_timer import learned_factor, performance_key
         if p:
             options.time_factor, options.measured_runs = learned_factor(self.store.performance(),
-                                                                       performance_key(p, Timing.preset(options.speed)))
+                                                                       performance_key(p, replace(Timing.preset(options.speed), game_delay=options.game_delay)))
         self._last_options = options
         self._analysis_pending = False
         self._analysis_timer.stop()
@@ -962,6 +963,25 @@ class MainWindow(StudioActions, QMainWindow):
         except Exception as exc:
             self.error(str(exc))
 
+    def install_game_profile(self):
+        if not self._require_free():
+            return
+        previous = self.local_mode, self.target
+        try:
+            self.local_mode = False
+            state = self._choose_target()
+            if state is None:
+                self.local_mode, self.target = previous
+                return
+            from app.game_profile import screenshot_profile
+            self._save_profile(screenshot_profile(state))
+            self.log.setText("Готовый профиль по новому скриншоту установлен: квадрат насыщается влево, "
+                             "непрозрачность 100% слева / 1% справа. "
+                             "Очистите холст → CHECK BRUSH SIZE → TEST DRAW.")
+        except Exception as exc:
+            self.local_mode, self.target = previous
+            self.error(str(exc))
+
     def check_brush_size(self):
         if not self._require_free():
             return
@@ -992,7 +1012,8 @@ class MainWindow(StudioActions, QMainWindow):
                 if not sizes:
                     available = sorted({b.pixels for b in p.brushes})
                     sizes = available[:3]+available[:1]
-                plan = Plan((p.canvas.width, p.canvas.height), [], Timing.preset(self.speed.currentText()),
+                plan = Plan((p.canvas.width, p.canvas.height), [],
+                            replace(Timing.preset(self.speed.currentText()), game_delay=self.game_delay.value()/1000),
                             0, "brush-check", [])
                 job = Job(lambda j: executor.check_brushes(plan, sizes, j.progress.emit), self)
                 def finished(message):
@@ -1017,6 +1038,8 @@ class MainWindow(StudioActions, QMainWindow):
                 return
             description = ("Программа нарисует три полоски: чёрную, красную и зелёную, сверху вниз. "
                            if self.profile.color_wheel else "Программа нарисует короткую линию в центре холста. ")
+            if self.profile.color_wheel and self.profile.opacity_slider and self.brush_opacity.value() < 100:
+                description += f"Затем четвёртую линию с непрозрачностью {self.brush_opacity.value()}%. "
             if QMessageBox.question(self, "TEST DRAW · реальный ввод", description +
                                     "Выберите обычную кисть без аэрографа и текстуры, непрозрачность 100%, "
                                     "стабилизатор 0%, масштаб холста 100%. "
@@ -1031,10 +1054,14 @@ class MainWindow(StudioActions, QMainWindow):
                 strokes = [Stroke(((.42, y), (.58, y)), color, width)
                            for y, color, width in [(.47, (0, 0, 0), thin),
                                                    (.50, (255, 0, 0), thick), (.53, (0, 255, 0), thin)]]
+                if self.brush_opacity.value() != 100 and p.opacity_slider:
+                    strokes.append(Stroke(((.42, .56), (.58, .56)), (0, 0, 0), thin,
+                                          opacity=self.brush_opacity.value()/100))
             else:
                 color = min(p.swatches, key=lambda s: sum(s.rgb)).rgb
                 strokes = [Stroke(((.42, .50), (.58, .50)), color, min(b.pixels for b in p.brushes))]
             timing = Timing.preset(self.speed.currentText() if p.brush_slider and p.brush_slider.readout else "Safe")
+            timing = replace(timing, game_delay=self.game_delay.value()/1000)
             clicks = selection_clicks(p)
             plan = Plan((p.canvas.width, p.canvas.height), strokes, timing,
                         estimate_plan(strokes, (p.canvas.width, p.canvas.height), timing, *clicks), "test",
@@ -1135,7 +1162,7 @@ class MainWindow(StudioActions, QMainWindow):
                     return
             # Inspect the actual test-line region, not animated characters/UI.
             box = (r.x + round(r.width * .38), r.y + round(r.height * .46),
-                   r.x + round(r.width * .62), r.y + round(r.height * .54))
+                   r.x + round(r.width * .62), r.y + round(r.height * .59))
             a, b = np.asarray(before.crop(box), np.int16), np.asarray(after.crop(box), np.int16)
             changed = int(np.count_nonzero(np.max(np.abs(a-b), axis=2) > 20))
             self.showNormal()
@@ -1148,6 +1175,8 @@ class MainWindow(StudioActions, QMainWindow):
                 return
             expected = ("Появились три полоски сверху вниз: чёрная, красная, зелёная? Красная толще остальных? "
                         if self.profile.color_wheel else "В центре холста появилась короткая линия нужного цвета и толщины? ")
+            if test_plan and any(stroke.opacity != 1 for stroke in test_plan.strokes):
+                expected += "Четвёртая чёрная полоска полупрозрачная, светлее первой? "
             answer = QMessageBox.question(self, "Проверка результата", f"Изменено пикселей: {changed}. " + expected +
                     "Подтвердите визуально; автоматическое сравнение не проверяет все цвета и размеры.")
             self.profile.verified = answer == QMessageBox.StandardButton.Yes

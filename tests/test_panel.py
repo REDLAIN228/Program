@@ -131,3 +131,29 @@ def test_clock_uses_test_stroke_count_instead_of_image_plan(qapp, tmp_path, monk
     panel._clock_timer.stop()
     panel.icon.close()
     panel.hide()
+
+
+def test_ready_profile_installs_actual_window_identity_and_persists_opacity(qapp, tmp_path, monkeypatch):
+    from app.automation import WindowState
+    monkeypatch.setattr(MainWindow, "start_hotkeys", lambda self: None)
+    errors = []
+    monkeypatch.setattr(MainWindow, "error", lambda self, text: errors.append(text))
+    panel = MainWindow(Store(tmp_path/"data"))
+    state = WindowState(987, "Roblox", "ActualGameClass", "RobloxPlayerBeta.exe", Rect(-1400, 20, 1366, 768), 120)
+    # Patch the class: restoring a bound method as an instance attribute
+    # creates a self-cycle that can outlive QApplication during teardown.
+    monkeypatch.setattr(MainWindow, "_choose_target", lambda self: state)
+    panel.install_game_profile()
+    assert not errors
+    assert panel.profile.target_class == "ActualGameClass" and panel.profile.dpi == 120
+    assert panel.profile.color_wheel.saturation_reversed and panel.profile.opacity_slider.point(100) == (590, 454)
+    assert not panel.profile.verified
+    panel.brush_opacity.setValue(75)
+    panel.game_delay.setValue(350)
+    settings = panel.store.settings()
+    assert settings["studio_opacity"] == 75 and settings["studio_game_delay"] == 350
+    restored = panel.store.profiles()[panel.profile.name]
+    assert restored.opacity_slider.point(1) == (720, 454)
+    panel._clock_timer.stop()
+    panel.icon.close()
+    panel.hide()

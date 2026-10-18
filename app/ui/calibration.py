@@ -57,6 +57,8 @@ class CalibrationDialog(QDialog):
         self.color_wheel = None
         self.color_tab = self.size_tab = None
         self.brush_slider, self.forbidden, self.adapter = None, [], None
+        self.opacity_slider = None
+        self.color_tolerance = 45
         self.wheel_points = []
         self.mode, self.first = "canvas", None
         self.pending_width = 3
@@ -127,10 +129,12 @@ class CalibrationDialog(QDialog):
         self.history.append(self.snapshot())
         self.name.setText(profile.name)
         self.canvas, self.character = profile.canvas, profile.character
-        self.tool, self.indicator = profile.brush_tool, None
+        self.tool, self.indicator = profile.brush_tool, profile.color_indicator
         self.swatches, self.brushes, self.anchors = [], profile.brushes, []
         self.color_wheel, self.color_tab, self.size_tab = profile.color_wheel, profile.color_tab, profile.size_tab
         self.brush_slider, self.forbidden, self.adapter = profile.brush_slider, profile.forbidden, profile.adapter
+        self.opacity_slider = profile.opacity_slider
+        self.color_tolerance = profile.color_tolerance
         self.first, self.wheel_points = None, []
         self.mode = "character"
         self.instructions.setText("Профиль загружен. Проверьте рамки холста и персонажа. "
@@ -170,7 +174,7 @@ class CalibrationDialog(QDialog):
         return deepcopy((self.canvas, self.character, self.tool, self.indicator,
                          self.swatches, self.brushes, self.anchors, self.mode, self.first, self.pending_width,
                          self.color_wheel, self.color_tab, self.size_tab, self.wheel_points, self.name.text(),
-                         self.brush_slider, self.forbidden, self.adapter))
+                         self.brush_slider, self.forbidden, self.adapter, self.opacity_slider, self.color_tolerance))
 
     def undo(self):
         if not self.history:
@@ -178,7 +182,7 @@ class CalibrationDialog(QDialog):
         (self.canvas, self.character, self.tool, self.indicator,
          self.swatches, self.brushes, self.anchors, self.mode, self.first, self.pending_width,
          self.color_wheel, self.color_tab, self.size_tab, self.wheel_points, name,
-         self.brush_slider, self.forbidden, self.adapter) = self.history.pop()
+         self.brush_slider, self.forbidden, self.adapter, self.opacity_slider, self.color_tolerance) = self.history.pop()
         self.name.setText(name)
         self.instructions.setText("Последняя точка отменена. " + (
             "Отметьте противоположный угол." if self.first else "Выберите шаг и отметьте точку заново."))
@@ -298,7 +302,8 @@ class CalibrationDialog(QDialog):
                               self.state.dpi, self.canvas, self.swatches, self.brushes,
                               self.tool, self.character, color_indicator=self.indicator,
                               color_wheel=self.color_wheel, color_tab=self.color_tab, size_tab=self.size_tab,
-                              brush_slider=self.brush_slider, forbidden=self.forbidden, adapter=self.adapter)
+                              brush_slider=self.brush_slider, forbidden=self.forbidden, adapter=self.adapter,
+                              opacity_slider=self.opacity_slider, color_tolerance=self.color_tolerance)
         profile.anchors = self.anchors
         try:
             profile.validate()

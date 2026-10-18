@@ -176,12 +176,26 @@ def build_studio(p):
     p.priority_view.region_selected.connect(p.add_priority_region)
     f = forms[3]
     f.addRow("Профиль", p.profile_combo)
+    p.ready_profile = button("ГОТОВЫЙ ПРОФИЛЬ · 1366×768", p.install_game_profile)
+    f.addRow(p.ready_profile)
     pair = QHBoxLayout()
     pair.addWidget(p.actions["CALIBRATE"])
     pair.addWidget(p.actions["TEST DRAW"])
     f.addRow(pair)
     f.addRow(button("CHECK BRUSH SIZE", p.check_brush_size))
     f.addRow("Скорость", p.speed)
+    p.game_delay = QSpinBox()
+    p.game_delay.setRange(60, 1000)
+    p.game_delay.setSuffix(" ms")
+    p.game_delay.setValue(250)
+    p.game_delay.setToolTip("Ожидание игры перед нажатием и после отпускания. При пропусках попробуйте 250–300 ms.")
+    f.addRow("Задержка игры", p.game_delay)
+    p.brush_opacity = QSpinBox()
+    p.brush_opacity.setRange(1, 100)
+    p.brush_opacity.setSuffix("%")
+    p.brush_opacity.setValue(100)
+    p.brush_opacity.setToolTip("Непрозрачность штрихов в игре. 100% сохраняет цвета; меньше — полупрозрачные штрихи с накоплением на пересечениях.")
+    f.addRow("Непрозрачность", p.brush_opacity)
     p.brush_policy = QComboBox()
     p.brush_policy.addItems(["Auto", "Тонкая", "Средняя", "Широкая"])
     p.brush_policy.setToolTip("Используются только откалиброванные размеры. Тонкая и средняя ограничивают максимальную кисть.")
@@ -244,7 +258,7 @@ def build_studio(p):
     old.deleteLater()
     p._advanced_controls = [p.engine, p.vector_accuracy, p.intelligence, p.priority_mode, p.detect_faces, p.brush_policy,
                             p.region_score, p.select_region, p.compare_button, p.simulate_button,
-                            p.custom_time, p.safety_buffer, p.smart_finish]
+                            p.custom_time, p.safety_buffer, p.smart_finish, p.brush_opacity, p.game_delay, p.ready_profile]
     def navigate(index):
         page = {0: 0, 1: 0, 2: 0, 3: 1, 4: 2, 5: 3, 7: 4}.get(index)
         if page is None:
@@ -268,6 +282,8 @@ def build_studio(p):
     for control in (p.engine, p.vector_accuracy, p.priority_mode):
         control.currentTextChanged.connect(p.intelligence_changed)
     p.brush_policy.currentTextChanged.connect(p.invalidate_plan)
+    p.brush_opacity.valueChanged.connect(p.invalidate_plan)
+    p.game_delay.valueChanged.connect(p.invalidate_plan)
     p.intelligence.valueChanged.connect(p.intelligence_changed)
     p.detect_faces.toggled.connect(p.intelligence_changed)
     p.custom_time.valueChanged.connect(p.timer_changed)

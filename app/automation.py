@@ -63,10 +63,72 @@ class DrawingExecutor:
                                 strokes=0, skipped=0, draw_seconds=0.)
         self._pen_seconds = 0.
         self._pen_started = None
+        self._released_at = None
+        self._controls_ready = False
+        self._last_hue = None
+        self._opacity = None
+        self._latency = 1.
+        self._control_log = []
+        self._observed_color = None
+
+    def _release(self):
+        self.backend.up()
+        self._released_at = time.monotonic()
+
+    def _press(self):
+        self._guard()
+        cursor = getattr(self.backend, "cursor_position", None)
+        self._control_log = (self._control_log+[dict(wanted=self._pointer, actual=cursor() if cursor else None,
+                                                   latency=self._latency)])[-64:]
+        self.backend.down()
+        self._released_at = None
+
+    def _arrive(self, point, plan):
+        """Do not press while Windows or the game still sees the previous position."""
+        self._wait(plan.timing.control_hold*self._latency)
+        position = getattr(self.backend, "cursor_position", None)
+        if position is None:
+            return
+        stable = 0
+        for attempt in range(24):
+            self._guard()
+            actual = position()
+            stable = stable+1 if math.dist(actual, point) <= 1 else 0
+            if stable >= 2:
+                return
+            if attempt and attempt % 6 == 0:
+                self._move(*point)
+            self._wait(max(.025, plan.timing.game_delay/4))
+        self._control_failure("cursor", point, position(),
+                              "Курсор не дошёл до нужной точки. Нажатие отменено; увеличьте задержку игры.")
+
+    def _control_failure(self, kind, expected, observed, reason):
+        save = getattr(self.backend, "save_control_diagnostic", None)
+        path = ""
+        if save:
+            try:
+                path = " Снимок контролов: "+save(self.profile, dict(kind=kind, expected=expected,
+                                                                  observed=observed, presses=self._control_log))
+            except OSError:
+                pass
+        raise SafetyError(reason+path)
+
+    def _open_controls(self, plan):
+        if self._controls_ready:
+            return
+        if self.profile.color_tab:
+            self._click(self.profile.color_tab, plan)
+        wheel = self.profile.color_wheel
+        if wheel:
+            if wheel.mode_button:
+                self._click(wheel.mode_button, plan)
+            if wheel.value_reset:
+                self._click(wheel.value_reset, plan)
+        self._controls_ready = True
 
     def stop(self) -> None:
         self.stop_event.set()
-        self.backend.up()
+        self._release()
 
     def pause(self, value: bool = True) -> None:
         if value:
@@ -74,7 +136,7 @@ class DrawingExecutor:
                 self.clock.pause()
             self.pause_event.set()
             self._interrupted.set()
-            self.backend.up()
+            self._release()
         else:
             if self.clock:
                 self.clock.resume()
@@ -129,6 +191,9 @@ class DrawingExecutor:
         if not slider or not slider.readout:
             self._move(x, y)
             return
+        if self._released_at is None:
+            self._release()
+        self._wait(max(0., plan.timing.pen_release*self._latency-(time.monotonic()-self._released_at)))
         self._guard()
         position = getattr(self.backend, "cursor_position", None)
         origin = position() if position else self._pointer
@@ -169,13 +234,13 @@ class DrawingExecutor:
         self._guard()
         feedback = self.profile.brush_slider is not None and self.profile.brush_slider.readout is not None
         if feedback:
-            self._wait(plan.timing.control_hold)
+            self._arrive((self._session.client.x+x, self._session.client.y+y), plan)
         self._guard()
         try:
-            self.backend.down()
-            self._wait(plan.timing.control_hold if feedback else plan.timing.event)
+            self._press()
+            self._wait(plan.timing.control_hold*self._latency if feedback else plan.timing.event)
         finally:
-            self.backend.up()
+            self._release()
         self._wait(plan.timing.control_settle if feedback else plan.timing.settle)
 
     def _brush_failure(self, expected, observed, reason):
@@ -213,6 +278,85 @@ class DrawingExecutor:
             self._wait(max(.15, plan.timing.control_settle/2))
         self._brush_failure(expected, previous, "Число не распознано уверенно или ещё меняется.")
 
+    def _read_opacity(self, expected, plan, changed_from=None):
+        slider = self.profile.opacity_slider
+        reader = getattr(self.backend, "read_opacity", None)
+        if not slider or not slider.readout or reader is None:
+            raise SafetyError("Для непрозрачности нужен готовый игровой профиль и чтение процента.")
+        r, origin = slider.readout, self._session.client
+        area = Rect(origin.x+r.x, origin.y+r.y, r.width, r.height)
+        previous = None
+        for attempt in range(12):
+            self._guard()
+            if not all(self.backend.point_belongs_to_target(x, y) for x, y in
+                       [(area.x, area.y), (area.x+area.width-1, area.y+area.height-1)]):
+                raise SafetyError("Процент непрозрачности перекрыт другим окном")
+            value = reader(area)
+            if (value is not None and 1 <= value <= 100 and value == previous
+                    and (value != changed_from or attempt >= 5)):
+                return value
+            previous = value
+            self._wait(max(.15, plan.timing.control_settle/2))
+        self._control_failure("opacity", expected, previous,
+                              f"Непрозрачность {expected}% не подтверждена по числу в игре. Штрих отменён.")
+
+    def _set_opacity(self, percent, plan):
+        slider = self.profile.opacity_slider
+        if not slider:
+            if percent != 100:
+                raise SafetyError("В профиле нет регулятора непрозрачности")
+            return
+        self._open_controls(plan)
+        current = self._read_opacity(percent, plan)
+        for drag_attempt in range(3):
+            if abs(current-percent) <= 4:
+                break
+            before_drag = current
+            ox, oy = self._session.client.x, self._session.client.y
+            start, end = slider.point(current), slider.point(percent)
+            self._travel(ox+start[0], oy+start[1], plan)
+            self._arrive((ox+start[0], oy+start[1]), plan)
+            try:
+                self._press()
+                self._wait(plan.timing.control_hold*self._latency)
+                steps = max(1, math.ceil(math.dist(start, end)/2))
+                for i in range(1, steps+1):
+                    self._move(ox+round(start[0]+(end[0]-start[0])*i/steps),
+                               oy+round(start[1]+(end[1]-start[1])*i/steps))
+                    self._wait(max(.025, plan.timing.game_delay/4))
+                self._wait(plan.timing.control_hold*self._latency)
+            finally:
+                self._release()
+            self._wait(plan.timing.control_settle)
+            current = self._read_opacity(percent, plan)
+            if current == before_drag:
+                self._latency = min(3., self._latency+.5)
+                self._wait(plan.timing.control_settle*self._latency)
+                current = self._read_opacity(percent, plan)
+        for step in range(24):
+            if current == percent:
+                self._opacity = percent
+                return
+            arrow = slider.increase if current < percent else slider.decrease
+            before = current
+            for attempt in range(3):
+                if attempt:
+                    self._latency = min(3., self._latency+.5)
+                    current = self._read_opacity(percent, plan)
+                    if current != before:
+                        break
+                self._click(arrow, plan)
+                current = self._read_opacity(percent, plan, changed_from=before)
+                if current != before:
+                    break
+            if current == before:
+                break
+        if current == percent:
+            self._opacity = percent
+            return
+        self._control_failure("opacity", percent, current,
+                              f"Непрозрачность: запрошено {percent}%, в игре {current}%. Штрих отменён.")
+
     def _step_brush(self, current, width, plan):
         """Retry missed free-arrow input; never paint using an unconfirmed width."""
         slider = self.profile.brush_slider
@@ -230,6 +374,7 @@ class DrawingExecutor:
             observed = self._read_brush(width, plan, changed_from=current)
             if observed != current:
                 return observed
+            self._latency = min(3., self._latency+.5)
         self._brush_failure(width, current, "Бесплатная стрелка размера не сработала после 3 попыток.")
 
     def _drag_slider(self, destination, plan, feedback):
@@ -247,11 +392,11 @@ class DrawingExecutor:
             origin = found[0]-ox, found[1]-oy
         self._travel(ox+origin[0], oy+origin[1], plan)
         if feedback:
-            self._wait(plan.timing.control_settle)
+            self._arrive((ox+origin[0], oy+origin[1]), plan)
         self._guard()
         try:
-            self.backend.down()
-            self._wait(plan.timing.control_hold if feedback else plan.timing.event)
+            self._press()
+            self._wait(plan.timing.control_hold*self._latency if feedback else plan.timing.event)
             length = math.dist(origin, destination)
             steps = max(1, math.ceil(length/3 if feedback else length/6))
             for i in range(1, steps+1):
@@ -260,9 +405,9 @@ class DrawingExecutor:
                 self._wait(max(.025, length/steps/plan.timing.control_speed)
                            if feedback else plan.timing.event)
             if feedback:
-                self._wait(plan.timing.control_hold)
+                self._wait(plan.timing.control_hold*self._latency)
         finally:
-            self.backend.up()
+            self._release()
         self._wait(plan.timing.control_settle if feedback else plan.timing.settle)
 
     def _set_brush(self, width, plan):
@@ -273,8 +418,7 @@ class DrawingExecutor:
             self._click(next(b.point for b in self.profile.brushes if b.pixels == width), plan)
             self._width = width
             return
-        if self.profile.color_tab:
-            self._click(self.profile.color_tab, plan)
+        self._open_controls(plan)
         if not slider.readout:
             self._drag_slider(slider.point(width), plan, False)
             self._width = width
@@ -312,7 +456,7 @@ class DrawingExecutor:
             try:
                 return self._park_pointer(plan)
             except _Paused:
-                self.backend.up()
+                self._release()
                 while self.pause_event.is_set():
                     self._guard()
                     if self.stop_event.wait(.025):
@@ -322,8 +466,8 @@ class DrawingExecutor:
     def _park_pointer(self, plan):
         if self._session is None:
             self._session = self._guard()
-        self.backend.up()
-        self._wait(plan.timing.pen_release)
+        self._release()
+        self._wait(plan.timing.pen_release*self._latency)
         r = self.profile.canvas
         bounds = Rect(0, 0, *self.profile.client_size)
         candidates = [(r.x-10, r.y-10), (r.x+r.width+10, r.y-10),
@@ -354,7 +498,7 @@ class DrawingExecutor:
                         self._set_brush(width, plan)
                         break
                     except _Paused:
-                        self.backend.up()
+                        self._release()
                         while self.pause_event.is_set():
                             if self.stop_event.wait(.025):
                                 raise InterruptedError("Проверка остановлена")
@@ -366,7 +510,7 @@ class DrawingExecutor:
         except InterruptedError:
             return "Проверка размера остановлена."
         finally:
-            self.backend.up()
+            self._release()
 
     def validate_plan(self, plan: Plan, require_verified: bool = True) -> None:
         if self.profile.brush_slider:
@@ -383,7 +527,9 @@ class DrawingExecutor:
         for stroke in plan.strokes:
             if ((not self.profile.color_wheel and stroke.color not in colors)
                     or len(stroke.color) != 3 or any(not 0 <= c <= 255 for c in stroke.color)
-                    or stroke.width not in widths or stroke.opacity != 1):
+                    or stroke.width not in widths or not math.isfinite(stroke.opacity)
+                    or not .01 <= stroke.opacity <= 1
+                    or (stroke.opacity != 1 and not self.profile.opacity_slider)):
                 raise SafetyError("План содержит некалиброванные цвета, размеры или прозрачность")
             if not stroke.points:
                 raise SafetyError("Пустой штрих")
@@ -394,13 +540,16 @@ class DrawingExecutor:
             time_limit: float | None = None, require_verified: bool = True,
             deadline: float | None = None, clock_origin: float | None = None) -> str:
         if self.stop_event.is_set():
-            self.backend.up()
+            self._release()
             state("IDLE")
             return "stopped"
         self.validate_plan(plan, require_verified)
         self._deadline = None
         self._session = self._guard()
         self._color = self._width = None
+        self._opacity = None
+        self._controls_ready = False
+        self._last_hue = None
         self._tool_selected = False
         started = time.monotonic()
         self._deadline = deadline if deadline is not None else (started+time_limit if time_limit is not None else None)
@@ -434,7 +583,7 @@ class DrawingExecutor:
             state("DRAWING")
             while self.completed < len(plan.strokes):
                 if self.pause_event.is_set() or self._interrupted.is_set():
-                    self.backend.up()
+                    self._release()
                     state("PAUSED")
                     pause_start = time.monotonic()
                     if self.pause_event.is_set():
@@ -450,6 +599,9 @@ class DrawingExecutor:
                     # Never steal focus back on resume.
                     self._guard()
                     self._color = self._width = None
+                    self._opacity = None
+                    self._controls_ready = False
+                    self._last_hue = None
                     self._tool_selected = False
                     state("DRAWING")
                 elapsed = time.monotonic() - started  # Round timer continues during pause.
@@ -499,7 +651,7 @@ class DrawingExecutor:
                 try:
                     self._execute(stroke, plan, started, time_limit)
                 except _Paused:
-                    self.backend.up()
+                    self._release()
                     continue
                 duration = time.monotonic()-stroke_started
                 self.executed_indices.append(self.completed)
@@ -523,20 +675,20 @@ class DrawingExecutor:
             state("IDLE")
             return "stopped"
         finally:
-            self.backend.up()
+            self._release()
             self.run_metrics = {**self.clock.snapshot(), "actual": measured_actual,
                                 "predicted": measured_prediction, "strokes": len(self.executed_indices),
                                 "skipped": len(self.skipped_indices), "draw_seconds": self._pen_seconds}
 
     def _select_color(self, color, plan):
-        if self.profile.color_tab:
-            self._click(self.profile.color_tab, plan)
+        self._open_controls(plan)
         wheel = self.profile.color_wheel
         if wheel:
-            if wheel.mode_button:
-                self._click(wheel.mode_button, plan)
-            for point in wheel.points(color):
-                self._click(point, plan)
+            points = wheel.points(color)
+            if max(color) != min(color) and points[0] != self._last_hue:
+                self._click(points[0], plan)
+                self._last_hue = points[0]
+            self._click(points[-1], plan)
         else:
             swatch = next(s for s in self.profile.swatches if s.rgb == color)
             for anchor in self.profile.anchors:
@@ -556,6 +708,7 @@ class DrawingExecutor:
             if not self.backend.point_belongs_to_target(x, y):
                 raise SafetyError("Индикатор цвета перекрыт другим окном")
             actual = self.backend.sample(x, y)
+            self._observed_color = actual
             matches = matches+1 if max(abs(a-b) for a, b in zip(actual, color)) <= self.profile.color_tolerance else 0
             if matches >= 2:
                 return True
@@ -569,31 +722,43 @@ class DrawingExecutor:
             self._click(self.profile.brush_tool, plan)
             self._tool_selected = True
         if color_changed:
-            self._select_color(stroke.color, plan)
+            self._open_controls(plan)
+            # Some game indicators fade with brush opacity. Confirm each new
+            # hue at 100%, then restore the requested drawing opacity.
+            if self.profile.opacity_slider and self._opacity != 100:
+                self._set_opacity(100, plan)
+            if not self.profile.color_indicator or not self._color_matches(stroke.color, plan):
+                self._select_color(stroke.color, plan)
         feedback = self.profile.brush_slider and self.profile.brush_slider.readout
         controls_changed = color_changed or self._width != stroke.width
         if self._width != stroke.width or (feedback and color_changed):
             self._set_brush(stroke.width, plan)
-        if controls_changed and not self._color_matches(stroke.color, plan):
+        if controls_changed and self._opacity in (None, 100) and not self._color_matches(stroke.color, plan):
+            self._latency = min(3., self._latency+.5)
+            self._last_hue = None
             self._select_color(stroke.color, plan)
             if feedback:
                 self._set_brush(stroke.width, plan)
             if not self._color_matches(stroke.color, plan):
-                raise SafetyError("Индикатор цвета не совпал с палитрой после повторного выбора. "
-                                  "Рисование остановлено до штриха. Проверьте Цвет → Колесо и калибровку.")
+                self._control_failure("color", stroke.color, self._observed_color,
+                                      f"Индикатор цвета не совпал: нужен {stroke.color}, в игре {self._observed_color}. "
+                                      "Рисование остановлено до штриха. Проверьте Цвет → Колесо и профиль.")
         self._color = stroke.color
+        percent = round(stroke.opacity*100)
+        if self.profile.opacity_slider and self._opacity != percent:
+            self._set_opacity(percent, plan)
         assert self._session
         canvas = plan.drawing_area(self.profile.canvas)
         local_points = [canvas.map(p, stroke.width / 2 + 1) for p in stroke.points]
         points = [(x + self._session.client.x, y + self._session.client.y) for x, y in local_points]
         self._travel(*points[0], plan)
         if feedback:
-            self._wait(plan.timing.control_hold)
+            self._arrive(points[0], plan)
         self._guard()
         try:
             self._pen_started = time.monotonic()
-            self.backend.down()
-            self._wait(plan.timing.pen_hold if feedback else plan.timing.event)
+            self._press()
+            self._wait(plan.timing.pen_hold*self._latency if feedback else plan.timing.event)
             for a, b in zip(points, points[1:]):
                 length = math.hypot(b[0] - a[0], b[1] - a[1])
                 steps = max(1, math.ceil(length / plan.timing.pen_sample(stroke.width, bool(feedback))))
@@ -606,14 +771,14 @@ class DrawingExecutor:
                     self._wait(plan.timing.pen_event(stroke.width, bool(feedback))
                                + length / steps / plan.timing.pixels_per_second)
             if feedback:
-                self._wait(plan.timing.pen_hold)
+                self._wait(plan.timing.pen_hold*self._latency)
         finally:
-            self.backend.up()
+            self._release()
             if self._pen_started is not None:
                 self._pen_seconds += time.monotonic()-self._pen_started
                 self._pen_started = None
         if feedback:
-            self._wait(plan.timing.pen_release)
+            self._wait(plan.timing.pen_release*self._latency)
 
     def _check_anchor(self, anchor) -> None:
         self._guard()

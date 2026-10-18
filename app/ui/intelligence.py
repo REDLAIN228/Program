@@ -45,6 +45,8 @@ class StudioActions:
             if value and widget.findText(value) >= 0:
                 widget.setCurrentText(value)
         self.intelligence.setValue(int(self.settings.get("studio_intelligence", 75)))
+        self.brush_opacity.setValue(int(self.settings.get("studio_opacity", 100)))
+        self.game_delay.setValue(int(self.settings.get("studio_game_delay", 250)))
         self.detect_faces.setChecked(bool(self.settings.get("studio_detect_faces", True)))
         self.smart_finish.setChecked(bool(self.settings.get("studio_smart_finish", True)))
         self.safety_buffer.setValue(int(self.settings.get("studio_buffer", 8)))
@@ -63,6 +65,8 @@ class StudioActions:
                              studio_detect_faces=self.detect_faces.isChecked(), studio_smart_finish=self.smart_finish.isChecked(),
                              studio_buffer=self.safety_buffer.value(), studio_custom_time=self.custom_time.value())
         self.settings["studio_brush_policy"] = self.brush_policy.currentText()
+        self.settings["studio_opacity"] = self.brush_opacity.value()
+        self.settings["studio_game_delay"] = self.game_delay.value()
 
     def studio_image_changed(self, path):
         self._source_key = path.stem

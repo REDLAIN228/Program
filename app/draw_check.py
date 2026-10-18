@@ -14,11 +14,12 @@ def inspect_test(before, after, profile, plan, directory: Path):
     before, after = before.convert("RGB").crop(bounds), after.convert("RGB").crop(bounds)
     changed = np.max(np.abs(np.asarray(before, np.int16)-np.asarray(after, np.int16)), axis=2) > 20
     allowed = Image.new("L", before.size)
-    expected = Image.new("RGB", before.size, "white")
+    from app.planner import render_plan
+    expected = render_plan(plan)
     for stroke in plan.strokes:
         points = [(x-r.x, y-r.y) for x, y in
                   (r.map(point, stroke.width/2+1) for point in stroke.points)]
-        for image, color, width in [(allowed, 255, stroke.width+6), (expected, stroke.color, stroke.width)]:
+        for image, color, width in [(allowed, 255, stroke.width+6)]:
             draw = ImageDraw.Draw(image)
             draw.line(points, fill=color, width=width)
             radius = width/2
@@ -28,6 +29,7 @@ def inspect_test(before, after, profile, plan, directory: Path):
     count, stray = int(changed.sum()), int(outside.sum())
     report = dict(changed_pixels=count, outside_pixels=stray, total_strokes=len(plan.strokes),
                   requested_widths=[s.width for s in plan.strokes],
+                  requested_opacities=[round(s.opacity*100) for s in plan.strokes],
                   requested_colors=[s.color for s in plan.strokes], canvas=asdict(r),
                   status="outside" if stray > max(12, count*.05) else "empty" if count < 3 else "geometry_ok")
     directory.mkdir(parents=True, exist_ok=True)

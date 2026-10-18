@@ -19,9 +19,9 @@ def main():
     for path in args.fonts:
         for size in range(9, 18):
             font = ImageFont.truetype(str(path), size)
-            for digit in range(10):
+            for digit, symbol in enumerate("0123456789%"):
                 image = Image.new("L", (40, 40))
-                ImageDraw.Draw(image).text((4, 1), str(digit), font=font, fill=255)
+                ImageDraw.Draw(image).text((4, 1), symbol, font=font, fill=255)
                 mask = np.asarray(image) > 80
                 glyph, aspect = normalize_digit(mask)
                 glyphs.append(np.round(glyph*255).astype(np.uint8))

@@ -1,4 +1,6 @@
 from dataclasses import replace
+import colorsys
+import math
 
 import pytest
 from PIL import Image
@@ -36,7 +38,7 @@ def test_game_profile_roundtrip_resolution_and_unverified_status():
     profile = screenshot_profile(game_state())
     assert not profile.verified
     assert Calibration.from_dict(profile.to_dict()).to_dict() == profile.to_dict()
-    assert selection_clicks(profile) == (5, 12)
+    assert selection_clicks(profile) == (2, 12)
     assert profile.brush_slider.minimum == 1 and profile.brush_slider.maximum == 256
     assert profile.size_tab is None
     with pytest.raises(ValueError, match="1366"):
@@ -57,8 +59,12 @@ class TabbedBackend:
         self.clicks = []
         self.drawing = []
         self.width = 128
+        self.opacity = 100
+        self.rgb = (0, 0, 0)
+        self.hue = 0.
 
     def read_brush_size(self, region): return self.width
+    def read_opacity(self, region): return self.opacity
 
     def snapshot(self): return game_state()
     def is_foreground(self): return True
@@ -71,6 +77,8 @@ class TabbedBackend:
         if self.pressed and self.point[1] == 404:
             assert self.tab == "color"
             self.width = round(1+(self.point[0]-590)*255/130)
+        if self.pressed and self.point[1] == 454 and 590 <= self.point[0] <= 720:
+            self.opacity = round(100-(self.point[0]-590)*99/130)
 
     def down(self):
         self.pressed = True
@@ -83,6 +91,12 @@ class TabbedBackend:
             self.width = max(1, self.width-1)
         elif point == p.brush_slider.increase:
             self.width = min(256, self.width+1)
+        elif p.opacity_slider and point == p.opacity_slider.decrease:
+            self.opacity = max(1, self.opacity-1)
+        elif p.opacity_slider and point == p.opacity_slider.increase:
+            self.opacity = min(100, self.opacity+1)
+        elif point[1] == 454 and 590 <= point[0] <= 720:
+            self.opacity = round(100-(point[0]-590)*99/130)
         elif point[1] == 404:
             assert self.tab == "color"
             self.width = round(1+(point[0]-590)*255/130)
@@ -90,15 +104,23 @@ class TabbedBackend:
             pass
         else:
             assert self.tab == "color", "Clicked the color wheel on the size tab"
-            # Expected square extremes for black, red, and green; independent of HSV math.
-            if point == (606, 246): self.rgb = (0, 0, 0)
-            elif point == (680, 171):
-                self.rgb = (255, 0, 0) if self.last_hue == (643, 135) else (0, 255, 0)
+            # Independent game geometry from the screenshot: hue on the LEFT,
+            # white on the RIGHT. Do not reuse ColorWheel.points to model this.
+            if 605 <= point[0] <= 682 and 170 <= point[1] <= 248:
+                saturation, value = 1-(point[0]-605)/77, 1-(point[1]-170)/78
+                self.rgb = tuple(round(v*255) for v in colorsys.hsv_to_rgb(self.hue, saturation, value))
             elif point not in {(573, 317), (746, 132)}:
-                self.last_hue = point
+                self.hue = math.atan2(point[0]-644, 209-point[1])/(2*math.pi) % 1
         self.clicks.append(point)
 
     def up(self): self.pressed = False
+
+
+def assert_drawing(backend, expected):
+    assert len(backend.drawing) == len(expected)
+    for (actual, width), (rgb, requested_width) in zip(backend.drawing, expected):
+        assert width == requested_width
+        assert max(abs(a-b) for a, b in zip(actual, rgb)) <= 25
 
 
 def test_executor_switches_hidden_tabs_and_uses_adaptive_colors():
@@ -110,8 +132,8 @@ def test_executor_switches_hidden_tabs_and_uses_adaptive_colors():
     plan = Plan((555, 555), strokes, Timing(.00001, .00001, 1000000, 100), 1, "test", [])
     executor = DrawingExecutor(backend, profile)
     assert executor.run(plan) == "finished"
-    assert backend.drawing == [((0, 0, 0), 2), ((255, 0, 0), 6), ((0, 255, 0), 2)]
-    assert backend.clicks.count(profile.color_tab) == 6
+    assert_drawing(backend, [((0, 0, 0), 2), ((255, 0, 0), 6), ((0, 255, 0), 2)])
+    assert backend.clicks.count(profile.color_tab) == 1
     assert profile.size_tab is None
     assert not any(r.contains(*point) for r in profile.forbidden for point in backend.clicks)
     assert not backend.pressed
@@ -138,6 +160,9 @@ def test_calibration_applies_and_undoes_game_preset(qapp):
     dialog.save()
     assert dialog.result_profile.target_process == "RobloxPlayerBeta.exe"
     assert not dialog.result_profile.verified
+    assert dialog.result_profile.color_wheel.saturation_reversed
+    assert dialog.result_profile.opacity_slider is not None
+    assert dialog.result_profile.color_tolerance == 25
     dialog.undo()
     assert dialog.color_wheel is None and dialog.canvas is None
     assert not dialog.save_button.isEnabled()
@@ -238,7 +263,7 @@ def test_slider_drag_starts_at_detected_thumb_instead_of_assuming_minimum():
                 Timing(.00001, .00001, 1000000, 100), 1, "test", [])
     assert DrawingExecutor(backend, profile).run(plan) == "finished"
     assert (720, 404) in backend.clicks
-    assert backend.drawing == [((0, 0, 0), 16)]
+    assert_drawing(backend, [((0, 0, 0), 16)])
 
 
 def test_unreadable_size_aborts_before_any_canvas_input():
@@ -297,7 +322,7 @@ def test_size_is_rechecked_after_changing_color_even_if_width_is_cached():
     strokes = [Stroke(((.2, .4), (.3, .4)), c, 1) for c in [(0, 0, 0), (255, 0, 0)]]
     plan = Plan((555, 555), strokes, Timing(), 1, "test", [])
     assert DrawingExecutor(backend, profile).run(plan) == "finished"
-    assert backend.drawing == [((0, 0, 0), 1), ((255, 0, 0), 1)]
+    assert_drawing(backend, [((0, 0, 0), 1), ((255, 0, 0), 1)])
 
 
 @pytest.mark.parametrize("speed,max_step", [("Slow", 7), ("Turbo · 7", 15)])
@@ -485,8 +510,8 @@ def test_missed_color_selection_is_corrected_after_brush_controls():
     plan = Plan((555, 555), [Stroke(((.42, .5), (.58, .5)), (255, 0, 0), 2)],
                 Timing.preset("Turbo · 7"), 1, "test", [])
     assert DrawingExecutor(backend, profile).run(plan) == "finished"
-    assert backend.clicks.count((680, 171)) == 2
-    assert backend.drawing == [((255, 0, 0), 2)]
+    assert backend.clicks.count((608, 173)) == 2
+    assert_drawing(backend, [((255, 0, 0), 2)])
 
 
 def test_persistently_wrong_color_stops_before_painting():
@@ -579,3 +604,162 @@ def test_thin_corner_is_visible_to_a_frame_sampled_target(monkeypatch):
     assert executor.run(plan) == "finished"
     mapped = [profile.canvas.map(point, 1.5) for point in stroke.points]
     assert all(point in observed for point in mapped)  # Endpoints and the sharp corner survived sampling.
+
+
+@pytest.mark.parametrize("percent", [1, 25, 50, 75, 100])
+def test_opacity_is_confirmed_and_same_value_does_not_repeat_controls(percent):
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = TabbedBackend(profile)
+    backend.width = 1
+    applied = []
+    down = backend.down
+
+    def record():
+        if profile.canvas.contains(*backend.point):
+            applied.append(backend.opacity)
+        down()
+
+    backend.down = record
+    strokes = [Stroke(((.2, y), (.3, y)), (255, 0, 0), 1, opacity=percent/100) for y in (.2, .8)]
+    plan = Plan((555, 555), strokes, Timing.preset("Turbo · 7"), 1, "test", [])
+    assert DrawingExecutor(backend, profile).run(plan) == "finished"
+    assert applied == [percent, percent]
+    assert backend.clicks.count(profile.color_tab) == 1
+    assert backend.clicks.count(profile.color_wheel.mode_button) == 1
+    assert backend.clicks.count(profile.color_wheel.value_reset) == 1
+    assert backend.clicks.count((608, 173)) == 1
+    assert not any(r.contains(*point) for point in backend.clicks for r in profile.forbidden)
+
+
+def test_unreadable_opacity_is_not_assumed_to_be_full_opacity():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+    backend = TabbedBackend(profile)
+    backend.read_opacity = lambda *_: None
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 1)], Timing(), 1, "test", [])
+    with pytest.raises(SafetyError, match="не подтверждена"):
+        DrawingExecutor(backend, profile).run(plan)
+    assert not backend.drawing and not backend.pressed
+
+
+def test_delayed_cursor_arrival_and_release_never_start_a_line_on_the_way(monkeypatch):
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+
+    class QueuedTarget(TabbedBackend):
+        def __init__(self, p):
+            super().__init__(p)
+            self.queued = None
+            self.move_age = 0.
+            self.release_in = 0.
+            self.starts = []
+            self.tails = []
+
+        def cursor_position(self):
+            origin = game_state().client
+            return self.point[0]+origin.x, self.point[1]+origin.y
+
+        def move(self, x, y):
+            self.queued = x, y
+            self.move_age = 0.
+
+        def down(self):
+            assert self.cursor_position() == self.queued, "Pressed before actual cursor arrival"
+            if profile.canvas.contains(*self.point):
+                self.starts.append(self.point)
+            super().down()
+
+        def up(self):
+            if self.pressed:
+                self.release_in = .22
+
+        def advance(self, seconds):
+            if self.release_in:
+                self.release_in = max(0., self.release_in-seconds)
+                if not self.release_in:
+                    self.pressed = False
+            self.move_age += seconds
+            if self.queued and self.move_age >= .22:
+                old = self.point
+                TabbedBackend.move(self, *self.queued)
+                if self.release_in and self.point != old:
+                    self.tails.append((old, self.point))
+
+    backend = QueuedTarget(profile)
+    backend.width = 1
+    executor = DrawingExecutor(backend, profile)
+    wait = executor._wait
+
+    def advance(seconds):
+        wait(0)
+        backend.advance(seconds)
+
+    monkeypatch.setattr(executor, "_wait", advance)
+    strokes = [Stroke(((.2, y), (.3, y)), color, 1)
+               for y, color in [(.2, (0, 0, 0)), (.8, (255, 0, 0))]]
+    plan = Plan((555, 555), strokes, Timing.preset("Turbo · 7"), 1, "test", [])
+    assert executor.run(plan) == "finished"
+    assert backend.starts == [profile.canvas.map(stroke.points[0], 1.5) for stroke in strokes]
+    assert not backend.tails
+
+
+def test_screenshot_saturation_direction_and_corner_inset():
+    wheel = screenshot_profile(game_state()).color_wheel
+    assert wheel.points((255, 0, 0))[-1] == (608, 173)
+    assert wheel.points((255, 255, 255))[-1] == (679, 173)
+    assert wheel.points((0, 0, 0))[-1] == (679, 245)
+
+
+def test_color_verification_handles_indicator_that_fades_with_opacity():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+
+    class FadingIndicator(TabbedBackend):
+        def sample(self, *_):
+            return tuple(round(c*self.opacity/100+255*(1-self.opacity/100)) for c in self.rgb)
+
+    backend = FadingIndicator(profile)
+    backend.width = 1
+    strokes = [Stroke(((.2, y), (.3, y)), rgb, width, opacity=.5)
+               for y, rgb, width in [(.2, (0, 0, 0), 1), (.4, (255, 0, 0), 1), (.6, (255, 0, 0), 2)]]
+    plan = Plan((555, 555), strokes, Timing(), 1, "test", [])
+    assert DrawingExecutor(backend, profile).run(plan) == "finished"
+    assert backend.opacity == 50
+    assert_drawing(backend, [((0, 0, 0), 1), ((255, 0, 0), 1), ((255, 0, 0), 2)])
+
+
+def test_missed_opacity_drag_is_retried_before_painting():
+    profile = screenshot_profile(game_state())
+    profile.verified = True
+
+    class DropsFirstDrag(TabbedBackend):
+        missed = False
+        dragging = False
+        attempts = 0
+
+        def down(self):
+            if self.point[1] == 454 and 590 <= self.point[0] <= 720:
+                self.dragging = True
+                self.attempts += 1
+            super().down()
+
+        def move(self, x, y):
+            old = self.opacity
+            super().move(x, y)
+            if self.dragging and not self.missed:
+                self.opacity = old
+
+        def up(self):
+            if self.dragging:
+                self.missed = True
+                self.dragging = False
+            super().up()
+
+    backend = DropsFirstDrag(profile)
+    backend.width = 1
+    plan = Plan((555, 555), [Stroke(((.2, .4), (.3, .4)), (0, 0, 0), 1, opacity=.5)],
+                Timing(), 1, "test", [])
+    assert DrawingExecutor(backend, profile).run(plan) == "finished"
+    assert backend.attempts == 2 and backend.opacity == 50
+    assert len(backend.drawing) == 1

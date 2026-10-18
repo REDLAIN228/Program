@@ -223,6 +223,27 @@ class Win32Backend:
         self._size_values = (getattr(self, "_size_values", [])+[value])[-12:]
         return value
 
+    def read_opacity(self, region):
+        import mss
+        from PIL import Image
+        from app.size_ocr import read_percent
+        with mss.mss() as capture:
+            shot = capture.grab({"left": region.x, "top": region.y,
+                                 "width": region.width, "height": region.height})
+        self._opacity_image = Image.frombytes("RGB", shot.size, shot.rgb)
+        return read_percent(self._opacity_image)
+
+    def save_control_diagnostic(self, profile, details):
+        from app.storage import data_directory, write_json
+        directory = data_directory()/"logs"
+        directory.mkdir(parents=True, exist_ok=True)
+        state = self.snapshot()
+        if profile.client_size == (1366, 768) and profile.color_wheel:
+            image = capture_client(state).crop((545, 85, 765, 580))
+            image.save(directory/"controls.png")
+        write_json(directory/"controls.json", {**details, "profile": profile.to_dict()})
+        return str(directory/"controls.json")
+
     def save_size_diagnostic(self, expected, observed):
         from app.storage import data_directory, write_json
         directory = data_directory()/"logs"

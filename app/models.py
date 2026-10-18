@@ -49,6 +49,8 @@ class ColorWheel:
     square: Rect  # Saturation increases rightward; value decreases downward.
     value_reset: tuple[int, int] | None = None
     mode_button: tuple[int, int] | None = None
+    saturation_reversed: bool = False
+    inset: int = 0
 
     def points(self, rgb: RGB) -> list[tuple[int, int]]:
         if len(rgb) != 3 or any(not 0 <= c <= 255 for c in rgb):
@@ -58,8 +60,12 @@ class ColorWheel:
         dx, dy = self.red[0] - self.center[0], self.red[1] - self.center[1]
         ring = (round(self.center[0] + dx * math.cos(angle) - dy * math.sin(angle)),
                 round(self.center[1] + dx * math.sin(angle) + dy * math.cos(angle)))
+        saturation = 1-saturation if self.saturation_reversed else saturation
         square = (round(self.square.x + saturation * (self.square.width - 1)),
                   round(self.square.y + (1 - value) * (self.square.height - 1)))
+        square = tuple(max(start+self.inset, min(start+length-1-self.inset, coord))
+                       for start, length, coord in zip((self.square.x, self.square.y),
+                                                      (self.square.width, self.square.height), square))
         return [ring] + ([self.value_reset] if self.value_reset else []) + [square]
 
 
@@ -106,6 +112,7 @@ class Calibration:
     brush_slider: BrushSlider | None = None
     forbidden: list[Rect] = field(default_factory=list)
     adapter: str | None = None
+    opacity_slider: BrushSlider | None = None  # Percent opacity, not transparency.
 
     def validate(self) -> None:
         w, h = self.client_size
@@ -121,8 +128,9 @@ class Calibration:
                 raise ValueError("Область выходит за границы игрового окна")
         controls = [s.point for s in self.swatches + self.anchors] + [b.point for b in self.brushes]
         controls += [p for p in [self.brush_tool, self.color_indicator, self.color_tab, self.size_tab] if p is not None]
-        if self.brush_slider:
-            slider = self.brush_slider
+        for slider in [self.brush_slider, self.opacity_slider]:
+            if slider is None:
+                continue
             controls += [slider.start, slider.end]
             controls += [p for p in [slider.decrease, slider.increase] if p is not None]
             if slider.readout:
@@ -137,14 +145,17 @@ class Calibration:
             if (slider.minimum is None) != (slider.maximum is None):
                 raise ValueError("Укажите обе границы диапазона ползунка")
             if slider.minimum is not None:
-                if not 1 <= slider.minimum < slider.maximum <= 4096:
+                if not 0 <= slider.minimum < slider.maximum <= 4096:
                     raise ValueError("Некорректный диапазон ползунка")
-                controls += [slider.point(b.pixels) for b in self.brushes]
+                if slider is self.brush_slider:
+                    controls += [slider.point(b.pixels) for b in self.brushes]
         if self.color_wheel:
             wheel = self.color_wheel
             radius = math.dist(wheel.center, wheel.red)
             if radius < 8 or wheel.square.width < 8 or wheel.square.height < 8:
                 raise ValueError("Некорректная геометрия цветового круга")
+            if type(wheel.inset) is not int or not 0 <= wheel.inset < min(wheel.square.width, wheel.square.height)/2:
+                raise ValueError("Некорректный отступ цветового квадрата")
             cx, cy = wheel.center
             for left, top, right, bottom in [
                     (cx-radius, cy-radius, cx+radius, cy+radius),
@@ -188,7 +199,9 @@ class Calibration:
             color_wheel=(ColorWheel(tuple(d["color_wheel"]["center"]), tuple(d["color_wheel"]["red"]),
                                     Rect(**d["color_wheel"]["square"]),
                                     tuple(d["color_wheel"]["value_reset"]) if d["color_wheel"].get("value_reset") else None,
-                                    tuple(d["color_wheel"]["mode_button"]) if d["color_wheel"].get("mode_button") else None)
+                                    tuple(d["color_wheel"]["mode_button"]) if d["color_wheel"].get("mode_button") else None,
+                                    bool(d["color_wheel"].get("saturation_reversed", False)),
+                                    d["color_wheel"].get("inset", 0))
                          if d.get("color_wheel") else None),
             color_tab=tuple(d["color_tab"]) if d.get("color_tab") else None,
             size_tab=tuple(d["size_tab"]) if d.get("size_tab") else None,
@@ -200,6 +213,12 @@ class Calibration:
                           if d.get("brush_slider") else None),
             forbidden=[Rect(**r) for r in d.get("forbidden", [])],
             adapter=d.get("adapter"),
+            opacity_slider=(BrushSlider(tuple(d["opacity_slider"]["start"]), tuple(d["opacity_slider"]["end"]),
+                                       d["opacity_slider"].get("minimum"), d["opacity_slider"].get("maximum"),
+                                       Rect(**d["opacity_slider"]["readout"]) if d["opacity_slider"].get("readout") else None,
+                                       tuple(d["opacity_slider"]["decrease"]) if d["opacity_slider"].get("decrease") else None,
+                                       tuple(d["opacity_slider"]["increase"]) if d["opacity_slider"].get("increase") else None)
+                            if d.get("opacity_slider") else None),
         )
         p.validate()
         return p
@@ -211,6 +230,7 @@ class Timing:
     settle: float = 0.09
     pixels_per_second: float = 900
     sample_pixels: float = 5
+    game_delay: float = .25
 
     @classmethod
     def preset(cls, name: str) -> Timing:
@@ -228,11 +248,11 @@ class Timing:
 
     @property
     def control_hold(self) -> float:
-        return max(.105, self.event * 3)
+        return max(.105, self.event * 3, self.game_delay)
 
     @property
     def control_settle(self) -> float:
-        return max(.35, self.settle)
+        return max(.35, self.settle, self.game_delay*2)
 
     def pen_event(self, width: int, feedback: bool = False) -> float:
         # A one-pixel corner must survive at least one 60 Hz game frame.
@@ -243,11 +263,11 @@ class Timing:
 
     @property
     def pen_hold(self) -> float:
-        return max(.035, self.event)
+        return max(.035, self.event, self.game_delay)
 
     @property
     def pen_release(self) -> float:
-        return max(.05, self.event)
+        return max(.05, self.event, self.game_delay)
 
 
 @dataclass(frozen=True)
@@ -332,7 +352,9 @@ class Plan:
             rgb = tuple(s["color"])
             if len(rgb) != 3 or any(not 0 <= c <= 255 for c in rgb):
                 raise ValueError("Некорректный цвет")
-            if not 1 <= s["width"] < min(size) or s.get("opacity", 1) != 1:
+            opacity = s.get("opacity", 1.)
+            if (not 1 <= s["width"] < min(size) or not math.isfinite(opacity)
+                    or not .01 <= opacity <= 1):
                 raise ValueError("Неподдерживаемая кисть или прозрачность")
             importance = s.get("importance", 50.)
             if not math.isfinite(importance) or not 0 <= importance <= 100:
@@ -340,7 +362,7 @@ class Plan:
             component = s.get("component_id", -1)
             if type(component) is not int or not -1 <= component <= 2**31-1:
                 raise ValueError("Некорректная связная область штриха")
-            strokes.append(Stroke(points, rgb, s["width"], 1.0, s.get("priority", 0), importance, component))
+            strokes.append(Stroke(points, rgb, s["width"], opacity, s.get("priority", 0), importance, component))
         timing = Timing(**d["timing"])
         if any(not math.isfinite(v) or v <= 0 for v in asdict(timing).values()):
             raise ValueError("Некорректные интервалы")
@@ -373,7 +395,7 @@ class Plan:
 def estimate_plan(strokes: list[Stroke], size: tuple[int, int], timing: Timing,
                   color_clicks: int = 1, brush_clicks: int = 1) -> float:
     total = 0.0
-    prev_color = prev_width = prev_end = None
+    prev_color = prev_width = prev_end = prev_opacity = None
     for s in strokes:
         feedback_controls = brush_clicks == 12
         total += s.seconds(size, timing, feedback_controls)
@@ -382,10 +404,23 @@ def estimate_plan(strokes: list[Stroke], size: tuple[int, int], timing: Timing,
         # this remains an estimate, not recognition of the game's round timer.
         click_seconds = (2*timing.control_hold + timing.control_settle + 200/timing.control_speed
                          if feedback_controls else timing.settle + 3*timing.event)
+        if feedback_controls and prev_color is None:
+            total += 3*click_seconds  # Open tab, wheel mode, brightness once.
         if s.color != prev_color:
             total += color_clicks * click_seconds
-        if s.width != prev_width or (feedback_controls and s.color != prev_color):
-            total += brush_clicks * click_seconds
+        if feedback_controls:
+            if prev_width is None or abs(s.width-prev_width) > 8:
+                total += brush_clicks*click_seconds
+            elif s.width != prev_width:
+                total += abs(s.width-prev_width)*click_seconds
+            if s.width != prev_width or s.color != prev_color:
+                total += timing.control_settle/2  # Confirm the number; no extra tab clicks.
+        elif s.width != prev_width:
+            total += brush_clicks*click_seconds
+        if feedback_controls and s.opacity != prev_opacity:
+            total += 2*click_seconds
+        elif feedback_controls and s.opacity != 1 and s.color != prev_color:
+            total += 4*click_seconds  # Verify new hue at 100%, restore opacity.
         if feedback_controls:
             if prev_end is None or s.color != prev_color or s.width != prev_width:
                 total += size[0]/timing.control_speed  # Return from controls to canvas.
@@ -393,5 +428,6 @@ def estimate_plan(strokes: list[Stroke], size: tuple[int, int], timing: Timing,
                 total += math.hypot((s.points[0][0]-prev_end[0])*size[0],
                                     (s.points[0][1]-prev_end[1])*size[1])/timing.control_speed
         prev_color, prev_width = s.color, s.width
+        prev_opacity = s.opacity
         prev_end = s.points[-1]
     return total * 1.15  # Scheduling and color-verification reserve; still only an estimate.

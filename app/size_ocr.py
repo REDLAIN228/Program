@@ -28,10 +28,52 @@ def read_size(image):
     a = np.asarray(image.convert("RGB"), dtype=np.int16)
     r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
     mask = (b > 160) & (b-r > 65) & (b-g > 30)
+    return _read_mask(mask, 1, 256)
+
+
+def read_percent(image):
+    """Pink opacity label with a required trailing percent sign; never guess."""
+    a = np.asarray(image.convert("RGB"), dtype=np.int16)
+    r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
+    mask = (r > 170) & (r-g > 70) & (r-b > 15)
+    ys, xs = np.nonzero(mask)
+    if not len(xs) or min(xs) == 0 or max(xs) == image.width-1 or min(ys) == 0 or max(ys) == image.height-1:
+        return None
+    crop = mask[ys.min():ys.max()+1, xs.min():xs.max()+1]
+    columns = np.any(crop, axis=0)
+    changes = np.diff(np.pad(columns.astype(np.int8), (1, 1)))
+    starts, ends = np.flatnonzero(changes == 1), np.flatnonzero(changes == -1)
+    glyphs, labels, aspects = templates()
+    if not np.any(labels == 10):
+        return None
+    # A '4' can touch the percent sign at small font sizes. Test bounded
+    # suffix splits against actual percent templates, then require one number.
+    height, width = crop.shape
+    cuts = set(range(max(2, width-round(height*1.25)), max(3, width-round(height*.4))))
+    if len(starts) >= 2:
+        cuts.add(int(starts[-1]))
+    candidates = set()
+    for cut in sorted(cuts):
+        if not np.any(crop[:, cut:]):
+            continue
+        glyph, aspect = normalize_digit(crop[:, cut:])
+        distance = np.mean(np.abs(glyphs-glyph), axis=(1, 2))+.08*np.abs(aspects-aspect)
+        sign = float(np.min(distance[labels == 10]))
+        digit = float(np.min(distance[labels < 10]))
+        if sign > .21 or digit-sign < .012:
+            continue
+        digits = np.pad(crop[:, :cut], ((2, 2), (2, 2)))
+        value = _read_mask(digits, 1, 100)
+        if value is not None:
+            candidates.add(value)
+    return candidates.pop() if len(candidates) == 1 else None
+
+
+def _read_mask(mask, minimum, maximum):
     ys, xs = np.nonzero(mask)
     if len(xs) < 4 or ys.max()-ys.min()+1 < 6:
         return None
-    if xs.min() == 0 or ys.min() == 0 or xs.max() == image.width-1 or ys.max() == image.height-1:
+    if xs.min() == 0 or ys.min() == 0 or xs.max() == mask.shape[1]-1 or ys.max() == mask.shape[0]-1:
         return None  # A clipped digit must never become a plausible smaller number.
     crop = mask[ys.min():ys.max()+1, xs.min():xs.max()+1]
     columns = np.any(crop, axis=0)
@@ -65,7 +107,7 @@ def read_size(image):
         if direct[0][0] == "0":
             return None
         value = int("".join(d[0] for d in direct))
-        return value if 1 <= value <= 256 else None
+        return value if minimum <= value <= maximum else None
     # Bold small text can have touching digits. Try near equal advances, but
     # reject ambiguous segmentations rather than guessing a brush size.
     height, width = crop.shape
@@ -83,7 +125,7 @@ def read_size(image):
             if not all(found) or found[0][0] == "0":
                 continue
             value = int("".join(d[0] for d in found))
-            if not 1 <= value <= 256:
+            if not minimum <= value <= maximum:
                 continue
             score = sum(d[1] for d in found)/length
             candidates[value] = min(candidates.get(value, 1.), score)

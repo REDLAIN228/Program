@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw
 from app.imaging import prepare
 from app.models import Plan, Progress, RGB, Rect, Stroke, Timing, estimate_plan
 from app.painter import complete_coverage, shape_strokes
-from app.raster import draw_stroke
+from app.raster import draw_stroke, composite_stroke
 
 
 @dataclass
@@ -40,6 +40,8 @@ class PlanOptions:
     smart_finish: bool = True
     time_factor: float = 1.
     measured_runs: int = 0
+    opacity: int = 100
+    game_delay: float = .25
 
 
 def rdp(points: np.ndarray, epsilon: float) -> np.ndarray:
@@ -121,9 +123,8 @@ def _merge_hatches(strokes: list[Stroke], mask: np.ndarray, size: tuple[int, int
 def render_plan(plan: Plan, size: tuple[int, int] | None = None) -> Image.Image:
     size = size or plan.canvas_size
     image = Image.new("RGB", size, "white")
-    draw = ImageDraw.Draw(image)
     for stroke in plan.strokes:
-        draw_stroke(draw, stroke, plan.canvas_size, size, stroke.color)
+        composite_stroke(image, stroke, plan.canvas_size, size)
     return image
 
 
@@ -153,7 +154,7 @@ def _build_legacy(image: Image.Image, options: PlanOptions, progress: Progress =
         raise ValueError("Лимит времени должен быть положительным")
     if options.stroke_style not in {"Shape", "Scanline"}:
         raise ValueError("Неизвестный способ рисования")
-    timing = Timing.preset(options.speed)
+    timing = replace(Timing.preset(options.speed), game_delay=options.game_delay)
     grid, colors = {"Fast": (160, 8), "Balanced": (256, 12),
                     "Detailed": (320, 20), "Ultra Detailed": (768, 64), "Full HD": (1920, 128)}[options.quality]
     full_hd = options.quality == "Full HD"
@@ -258,6 +259,8 @@ def _build_legacy(image: Image.Image, options: PlanOptions, progress: Progress =
             raise ValueError("План превышает 100 000 штрихов. Уменьшите кадр или качество.")
         repairs, uncovered = complete_coverage(strokes, labels, palette, widths, options.canvas_size, cancel)
         strokes.extend(repairs)
+        if options.engine == "Legacy" and options.opacity != 100:
+            strokes = [replace(stroke, opacity=options.opacity/100) for stroke in strokes]
         estimate = estimate_plan(strokes, options.canvas_size, timing, options.color_clicks, options.brush_clicks)
         plan = Plan(options.canvas_size, strokes, timing, estimate, source_hash,
                     list(dict.fromkeys(s.color for s in strokes)),
@@ -286,9 +289,9 @@ def _build_legacy(image: Image.Image, options: PlanOptions, progress: Progress =
                           f"Физический холст {cw}×{ch}; исходные детали не дорисовываются.")
     plan.notes.append("Штрихи по форме: набросок → отдельные цветовые области → тонкие детали."
                       if options.stroke_style == "Shape" else "Построчное заполнение областей.")
-    plan.notes.append("Цвета из изображения через HSV; проверьте TEST DRAW. Непрозрачность 100%."
+    plan.notes.append(f"Цвета из изображения через HSV; проверьте TEST DRAW. Непрозрачность {options.opacity}%."
                       if options.palette is None and options.color_clicks > 1 else
-                      "Ручная палитра: только подтверждённые RGB и размеры кисти; непрозрачность 100%.")
+                      f"Ручная палитра: только подтверждённые RGB и размеры кисти; непрозрачность {options.opacity}%.")
     if options.time_limit and plan.estimated_seconds > options.time_limit:
         plan.notes.append(f"План требует около {plan.estimated_seconds:.0f} с и превышает лимит "
                           f"{options.time_limit:.0f} с. Увеличьте лимит или упростите изображение.")
@@ -301,6 +304,10 @@ def _build_legacy(image: Image.Image, options: PlanOptions, progress: Progress =
 def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = lambda *_: None,
                cancel: threading.Event | None = None) -> tuple[Plan, Image.Image]:
     """Preserve the public planning API and the explicit legacy comparison path."""
+    if type(options.opacity) is not int or not 1 <= options.opacity <= 100:
+        raise ValueError("Непрозрачность должна быть целым числом 1–100%")
+    if not math.isfinite(options.game_delay) or not .06 <= options.game_delay <= 1:
+        raise ValueError("Задержка игры должна быть 60–1000 мс")
     if options.engine == "Legacy":
         return _build_legacy(image, options, progress, cancel)
     if options.engine != "Vector 2.0":
@@ -341,7 +348,7 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
         repairs, _ = optimize(repairs, plan.canvas_size, scores, "Ultra", options.detail_intelligence, cancel,
                               plan.timing, plan.color_clicks, plan.brush_clicks)
         repairs = merge_compatible(repairs, labels, palette, plan.canvas_size, cancel)
-    plan.strokes = strokes+repairs
+    plan.strokes = [replace(stroke, opacity=options.opacity/100) for stroke in strokes+repairs]
     plan.source_hash = hashlib.sha256(image.convert("RGB").tobytes()+str(image.size).encode()).hexdigest()
     plan.engine, plan.smart_finish = "Vector 2.0", options.smart_finish
     plan.safety_buffer, plan.time_factor = options.safety_buffer, options.time_factor
@@ -355,6 +362,9 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
     plan.estimated_seconds = estimate_plan(plan.strokes, plan.canvas_size, plan.timing,
                                            plan.color_clicks, plan.brush_clicks)*options.time_factor
     plan.notes.append("Detail Priority: "+analysis.method)
+    if options.opacity != 100:
+        plan.notes.append(f"Непрозрачность штрихов {options.opacity}%. Перекрытия накапливают цвет; "
+                          "для точной копии исходных цветов используйте 100%.")
     plan.notes.append(f"Vector 2.0: допуск относительно базовых штрихов ≤{metrics['contour_error_bound']:.2f} px; "
                       f"добавлено {len(repairs)} штрихов контроля покрытия.")
     plan.notes.append(f"Оценка по {options.measured_runs} измеренным запускам (приблизительно)."

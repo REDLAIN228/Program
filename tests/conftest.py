@@ -16,6 +16,13 @@ def profile():
 
 @pytest.fixture(scope="session")
 def qapp():
+    from PySide6.QtCore import QCoreApplication, QEvent
     from PySide6.QtWidgets import QApplication
     application = QApplication.instance() or QApplication([])
     yield application
+    # Destroy retained test windows/timers while Qt is still alive, rather
+    # than leaving their native objects to Python's interpreter finalization.
+    for widget in QApplication.topLevelWidgets():
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    application.processEvents()
