@@ -10,7 +10,7 @@ PROFILE_NAME = "Roblox · персонаж слева · 1366×768"
 FREE_SLIDER_ADAPTER = "roblox-free-slider-v5"
 LEGACY_ADAPTERS = {"roblox-free-slider-v1", "roblox-free-slider-v2", "roblox-free-slider-v3", "roblox-free-slider-v4"}
 POPUP_PROFILE_NAME = "Roblox · новый плейс · RGB-палитра · 1366×768"
-POPUP_ADAPTER = "roblox-popup-rgb-v3"
+POPUP_ADAPTER = "roblox-popup-rgb-v4"
 
 
 def opacity_slider():
@@ -34,7 +34,7 @@ def feedback_slider(slider):
 
 def restrict_game_profile(profile: Calibration) -> bool:
     """Migrate the old screenshot preset before it can touch the paid size tab."""
-    if (profile.adapter in {"roblox-popup-rgb-v1", "roblox-popup-rgb-v2"} and profile.popup_controls
+    if (profile.adapter in {"roblox-popup-rgb-v1", "roblox-popup-rgb-v2", "roblox-popup-rgb-v3"} and profile.popup_controls
             and profile.client_size == (1366, 768) and "roblox" in profile.target_process.casefold()):
         popup = profile.popup_controls
         fields = (((649, 564), (750, 564), (851, 564))

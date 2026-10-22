@@ -74,10 +74,11 @@ def test_numeric_keyboard_packets_clear_replace_and_commit_without_clipboard(mon
     backend._lock = threading.Lock()
     backend.replace_number(32, lambda: guards.append(True), waits.append)
     assert packets == ([(0, 0x4F, 9), (0, 0x4F, 11)]+[(0, 0x0E, 8), (0, 0x0E, 10)]*8
-                       +[(0, 0x53, 9), (0, 0x53, 11)]*8+[(0, 0x4F, 9), (0, 0x4F, 11),
+                       +[(0, 0x53, 9), (0, 0x53, 11)]+[(0, 0x4F, 9), (0, 0x4F, 11),
                        (ord("3"), 0, 0), (ord("3"), 0, 2), (ord("2"), 0, 0), (ord("2"), 0, 2),
                        (0, 0x1C, 8), (0, 0x1C, 10)])
-    assert len(guards) == 21 and waits == [.035]*42
+    assert len(guards) == 14 and waits == [.025]*28
+    assert sum(waits) < .8  # Previously 1.47 s just for the key-edge waits.
 
 
 @pytest.mark.parametrize("stop_at", [1, 3, 5, 19])
@@ -99,7 +100,8 @@ def test_numeric_keyboard_releases_editing_keys_when_stop_interrupts_input(monke
             held.discard(vk)
         else:
             held.add(vk)
-    assert not held and not any(ord("0") <= vk <= ord("9") for vk, _ in packets)
+    assert not held
+    assert not any(vk == 0x0D for vk, _ in packets)  # Never commit after cancellation.
     with pytest.raises(ValueError):
         backend.replace_number("255\n", lambda: None, lambda _: None)
 
@@ -175,19 +177,22 @@ def test_scan_code_edit_keys_clear_target_that_ignores_virtual_edit_keys(monkeyp
     monkeypatch.setattr(native, "user32", SimpleNamespace(SendInput=send), raising=False)
     backend = native.Win32Backend.__new__(native.Win32Backend)
     backend._lock = threading.Lock()
-    backend.replace_number(128, lambda: None, lambda _: None, confirm_cleared=lambda: box.text == "")
+    backend.replace_number(128, lambda: None, lambda _: None)
     assert box.before_digits[0] == "" and box.text == "128"
 
 
-def test_failed_clear_confirmation_never_sends_digits_or_commit():
-    from app.automation import FieldNotCleared
+def test_delete_type_enter_is_one_transaction_with_no_empty_field_gate():
     from app.windows import Win32Backend
+    box = TextBoxIgnoringSelectAll("0255", 0)
     packets = []
+    def key(vk, up=False):
+        packets.append((vk, up))
+        box.key(vk, up)
     backend = Win32Backend.__new__(Win32Backend)
-    backend._key = lambda vk, up=False: packets.append((vk, up))
-    with pytest.raises(FieldNotCleared):
-        backend.replace_number(128, lambda: None, lambda _: None, confirm_cleared=lambda: False)
-    assert not any(vk == 0x0D or ord("0") <= vk <= ord("9") for vk, _ in packets)
+    backend._key = key
+    backend.replace_number(128, lambda: None, lambda _: None)
+    assert box.text == "128" and box.before_digits[0] == ""
+    assert packets[-2:] == [(0x0D, False), (0x0D, True)]
 
 
 def test_mouse_selection_is_deleted_before_end_can_collapse_it():
@@ -205,6 +210,5 @@ def test_mouse_selection_is_deleted_before_end_can_collapse_it():
     box = SelectedBox("255"*10, 0)
     backend = Win32Backend.__new__(Win32Backend)
     backend._key = box.key
-    backend.replace_number(128, lambda: None, lambda _: None, selected=True,
-                           confirm_cleared=lambda: box.text == "")
+    backend.replace_number(128, lambda: None, lambda _: None, selected=True)
     assert box.text == "128" and box.before_digits[0] == ""

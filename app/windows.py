@@ -8,7 +8,7 @@ from pathlib import PureWindowsPath
 import threading
 import time
 
-from app.automation import FieldNotCleared, SafetyError, WindowState
+from app.automation import SafetyError, WindowState
 from app.models import Rect
 
 
@@ -215,7 +215,7 @@ class Win32Backend:
             if user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(INPUT)) != 1:
                 raise SafetyError("Windows отклонила ввод числа через SendInput")
 
-    def replace_number(self, number, guard, wait, *, confirm_cleared=None, selected=False):
+    def replace_number(self, number, guard, wait, *, selected=False):
         if type(number) is not int or not 0 <= number <= 999:
             raise ValueError("Допускаются только целые числа 0–999")
         held = []
@@ -224,12 +224,12 @@ class Win32Backend:
             guard()
             held.append(vk)
             self._key(vk)
-            wait(.035)
+            wait(.025)
 
         def up(vk):
             self._key(vk, True)
             held.remove(vk)
-            wait(.035)  # Give the game a frame with the key released before repeating it.
+            wait(.025)  # Preserve a released frame between repeated scan-code keys.
 
         try:
             # Roblox TextBoxes may ignore Ctrl+A. The field is clicked on its
@@ -238,13 +238,9 @@ class Win32Backend:
             if not selected:
                 down(0x23)
                 up(0x23)
-            for vk in (0x08,)*8+(0x2E,)*8:
+            for vk in (0x08,)*(1 if selected else 8)+(0x2E,):
                 down(vk)
                 up(vk)
-            if confirm_cleared is not None:
-                guard()
-                if not confirm_cleared():
-                    raise FieldNotCleared("Старое число не удалено. Новое число не вводилось.")
             # Some numeric boxes restore "0" when emptied. Keep that default
             # before the new digits, rather than appending it to their end.
             down(0x23)

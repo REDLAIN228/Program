@@ -5,7 +5,7 @@ import time
 import pytest
 from PIL import Image
 
-from app.automation import DrawingExecutor, FieldNotCleared, SafetyError, WindowState
+from app.automation import DrawingExecutor, SafetyError, WindowState
 from app.game_profile import popup_screenshot_profile, restrict_game_profile
 from app.models import Calibration, Plan, Rect, Stroke, Timing
 from app.size_ocr import read_numeric_size
@@ -69,11 +69,9 @@ class PopupBackend:
         else:
             raise AssertionError(f"Unexpected click: {self.point}")
 
-    def replace_number(self, value, guard, wait, *, confirm_cleared=None, selected=False):
+    def replace_number(self, value, guard, wait, *, selected=False):
         guard()
-        wait(.035)
-        if confirm_cleared and not confirm_cleared():
-            raise FieldNotCleared("Not cleared")
+        wait(.025)
         self.edits.append((self.focused, value))
         self.brush = False
         if self.focused == "size":
@@ -107,7 +105,7 @@ def test_profile_roundtrip_does_not_migrate_to_old_game():
         popup_screenshot_profile(replace(state(), process="other.exe"))
 
 
-@pytest.mark.parametrize("adapter", ["roblox-popup-rgb-v1", "roblox-popup-rgb-v2"])
+@pytest.mark.parametrize("adapter", ["roblox-popup-rgb-v1", "roblox-popup-rgb-v2", "roblox-popup-rgb-v3"])
 def test_old_popup_profile_moves_clicks_to_right_edge_and_requires_new_test(adapter):
     p = popup_screenshot_profile(state())
     p.adapter, p.verified = adapter, True
@@ -116,7 +114,7 @@ def test_old_popup_profile_moves_clicks_to_right_edge_and_requires_new_test(adap
     assert restrict_game_profile(p)
     assert p.popup_controls.rgb_fields == ((649, 564), (750, 564), (851, 564))
     assert p.popup_controls.brush_field == (700, 692)
-    assert p.adapter == "roblox-popup-rgb-v3" and not p.verified
+    assert p.adapter == "roblox-popup-rgb-v4" and not p.verified
     p.validate()
     assert not restrict_game_profile(p)
 
@@ -193,44 +191,124 @@ def test_new_profile_rejects_unsupported_opacity():
         DrawingExecutor(PopupBackend(p), p).run(drawing, require_verified=False)
 
 
-def test_ignored_delete_stops_before_any_new_digits_or_paint():
+def test_ambiguous_empty_field_does_not_block_typing_and_enter():
     p = popup_screenshot_profile(state())
-    class CannotClear(PopupBackend):
+    class AmbiguousCaret(PopupBackend):
         def read_number_field(self, region, dark_text):
-            return dict(cleared=False, value=255)
-    backend = CannotClear(p)
+            raise AssertionError("An empty-field image must not interrupt replacement")
+    backend = AmbiguousCaret(p)
     executor = DrawingExecutor(backend, p)
-    with pytest.raises(SafetyError, match="очистить"):
-        executor.run(plan(), require_verified=False)
-    assert not backend.edits and not backend.drawing and not backend.pressed
-    assert any(entry["kind"] == "field-select" for entry in executor._control_log)
+    assert executor.run(plan(), require_verified=False) == "finished"
+    assert backend.edits and backend.drawing == [(s.color, s.width) for s in plan().strokes]
+    assert not backend.pressed
 
 
-def test_mouse_selection_retries_a_field_that_did_not_clear_on_first_attempt():
+@pytest.mark.parametrize("ignore_enter", [False, True])
+def test_native_key_packets_commit_rgb_and_size_before_any_paint(monkeypatch, ignore_enter):
+    import ctypes
+    import threading
+    from types import SimpleNamespace
+    import app.windows as native
+
+    p = popup_screenshot_profile(state())
+
+    class TextBoxes(PopupBackend):
+        def __init__(self):
+            super().__init__(p)
+            self.width = 0
+            self.text, self.caret = "", 0
+            self.committed = []
+
+        def down(self):
+            super().down()
+            if self.point in p.popup_controls.rgb_fields or self.point == p.popup_controls.brush_field:
+                value = self.width if self.focused == "size" else self.rgb[self.focused]
+                self.text, self.caret = "0"+str(value), 0  # Old concatenated value, caret at left.
+
+        def read_number_field(self, *args):
+            raise AssertionError("Caret/placeholder detection must not gate the transaction")
+
+        def replace_number(self, value, guard, wait, *, selected=False):
+            self.edits.append((self.focused, value))
+            self.brush = False
+            keyboard.replace_number(value, guard, wait, selected=selected)
+
+        def receive(self, vk):
+            if vk == 0x23:
+                self.caret = len(self.text)
+            elif vk == 0x08 and self.caret:
+                self.text = self.text[:self.caret-1]+self.text[self.caret:]
+                self.caret -= 1
+            elif vk == 0x2E:
+                self.text = self.text[:self.caret]+self.text[self.caret+1:]
+            elif ord("0") <= vk <= ord("9"):
+                self.text = self.text[:self.caret]+chr(vk)+self.text[self.caret:]
+                self.caret += 1
+            elif vk == 0x0D and not ignore_enter:
+                self.committed.append((self.focused, self.text))
+                value = int(self.text)
+                if self.focused == "size":
+                    self.width = value
+                else:
+                    self.rgb[self.focused] = value
+
+    backend = TextBoxes()
+
+    def send(count, pointer, size):
+        key = ctypes.cast(pointer, ctypes.POINTER(native.INPUT)).contents.ki
+        if not key.dwFlags & 2:
+            if key.dwFlags & 8:
+                backend.receive({0x4F: 0x23, 0x0E: 0x08, 0x53: 0x2E, 0x1C: 0x0D}[key.wScan])
+            elif ord("0") <= key.wVk <= ord("9"):
+                backend.receive(key.wVk)
+        return 1  # Virtual edit keys would be accepted by Windows but ignored by this game.
+
+    monkeypatch.setattr(native, "user32", SimpleNamespace(SendInput=send), raising=False)
+    keyboard = native.Win32Backend.__new__(native.Win32Backend)
+    keyboard._lock = threading.Lock()
+    executor = DrawingExecutor(backend, p)
+    if ignore_enter:
+        with pytest.raises(SafetyError, match="RGB"):
+            executor.run(plan(), require_verified=False)
+        assert not backend.drawing
+    else:
+        assert executor.run(plan(), require_verified=False) == "finished"
+        assert backend.drawing == [(s.color, s.width) for s in plan().strokes]
+        assert backend.committed == [(field, str(value)) for field, value in backend.edits]
+        assert {field for field, _ in backend.committed} == {0, 1, 2, "size"}
+    assert not backend.pressed
+
+
+def test_wrong_committed_value_is_replaced_with_mouse_selection_before_paint():
     p = popup_screenshot_profile(state())
     class RequiresSelection(PopupBackend):
-        selected = False
-        def move(self, x, y):
-            old = self.point
-            super().move(x, y)
-            if self.pressed and self.point[0] < old[0]-4:
-                self.selected = True
-        def read_number_field(self, region, dark_text):
-            return dict(cleared=self.selected, value=None if self.selected else 255)
+        selected_edits = 0
+        def replace_number(self, value, guard, wait, *, selected=False):
+            if selected:
+                self.selected_edits += 1
+                super().replace_number(value, guard, wait, selected=True)
+            else:
+                guard()
+                # Model ignored deletion: the game retains an incorrect number.
+                self.edits.append((self.focused, value))
     backend = RequiresSelection(p)
     executor = DrawingExecutor(backend, p)
     assert executor.run(plan(), require_verified=False) == "finished"
-    assert backend.selected and backend.drawing[0] == ((0, 0, 0), 1)
+    assert backend.selected_edits and backend.drawing == [(s.color, s.width) for s in plan().strokes]
+    assert any(entry["kind"] == "field-select" for entry in executor._control_log)
 
 
-def test_focus_failure_during_clear_confirmation_does_not_retry_typing():
+def test_focus_failure_during_input_does_not_retry_typing():
     p = popup_screenshot_profile(state())
     class LostFocus(PopupBackend):
-        def read_number_field(self, region, dark_text):
-            raise SafetyError("Focus lost")
+        focus = True
+        def is_foreground(self): return self.focus
+        def replace_number(self, value, guard, wait, *, selected=False):
+            self.focus = False
+            guard()
     backend = LostFocus(p)
     executor = DrawingExecutor(backend, p)
-    with pytest.raises(SafetyError, match="Focus lost"):
+    with pytest.raises(SafetyError, match="фокус"):
         executor.run(plan(), require_verified=False)
     assert not backend.edits and not backend.drawing and not backend.pressed
     assert not any(entry["kind"] == "field-select" for entry in executor._control_log)
@@ -258,7 +336,7 @@ def test_popup_profile_button_and_calibration_preserve_old_profile(qapp, tmp_pat
     panel.ready_profile.click()
     old_name = panel.profile.name
     panel.popup_profile.click()
-    assert "RGB v3" in panel.popup_profile.text()
+    assert "RGB v4" in panel.popup_profile.text()
     assert not errors and panel.profile.popup_controls is not None
     assert panel.profile.name != old_name and old_name in panel.profiles
     assert panel.store.profiles()[panel.profile.name].popup_controls == panel.profile.popup_controls

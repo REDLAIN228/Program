@@ -1,5 +1,5 @@
 """Numeric controls for the screenshot preset with an overlapping RGB popup."""
-from app.automation import FieldNotCleared, SafetyError
+from app.automation import SafetyError
 from app.models import Rect
 
 
@@ -21,6 +21,20 @@ class PopupController:
         return all(max(abs(a-b) for a, b in zip(self._sample(s.point), s.rgb)) <= 22
                    for s in self.controls.visible_anchors)
 
+    def tap(self, point, plan):
+        """Short UI click; popup/color/size feedback confirms the result."""
+        x = self.x
+        state = x._guard()
+        screen = point[0]+state.client.x, point[1]+state.client.y
+        x._travel(*screen, plan)
+        x._arrive(screen, plan, delay=max(.035, min(.08, plan.timing.game_delay/4)))
+        try:
+            x._press()
+            x._wait(max(.05, min(.10, plan.timing.game_delay/3)))
+        finally:
+            x._release()
+        x._wait(max(.05, min(.12, plan.timing.game_delay/2)))
+
     def ensure(self, opened, plan):
         current = self.shown()
         if current == opened and self._known_state == opened:
@@ -29,7 +43,7 @@ class PopupController:
             # Recheck before retrying: a delayed first click may already have
             # changed the state, and a blind second toggle would undo it.
             if self.shown() != opened:
-                self.x._click(self.controls.toggle, plan)
+                self.tap(self.controls.toggle, plan)
             stable = 0
             for attempt in range(10):
                 stable = stable+1 if self.shown() == opened else 0
@@ -40,59 +54,31 @@ class PopupController:
         self.x._control_failure("popup", opened, self.shown(),
                                 "Не удалось подтвердить открытие/закрытие RGB-палитры. Штрих отменён.")
 
-    def edit(self, point, number, plan):
+    def edit(self, point, number, plan, *, select=False):
         writer = getattr(self.x.backend, "replace_number", None)
         if writer is None:
             raise SafetyError("Для нового профиля нужен ввод чисел с клавиатуры Windows")
-        if not getattr(self.x.backend, "read_number_field", None):
-            raise SafetyError("Нет проверки очистки числового поля; ввод нового числа отменён")
         dark = point == self.controls.brush_field
         local = (self.controls.brush_readout if dark else Rect(point[0]-51, point[1]-12, 53, 24))
         state = self.x._guard()
-        region = Rect(local.x+state.client.x, local.y+state.client.y, local.width, local.height)
-        observed = {}
-
-        def cleared():
-            nonlocal observed
-            stable = 0
-            for attempt in range(14):
-                self.x._guard()
-                if not all(self.x.backend.point_belongs_to_target(px, py) for px, py in
-                           [(region.x, region.y), (region.x+region.width-1, region.y+region.height-1)]):
-                    raise SafetyError("Числовое поле перекрыто другим окном")
-                observed = self.x.backend.read_number_field(region, dark)
-                stable = stable+1 if observed.get("cleared") else 0
-                if stable == 2:
-                    return True
-                self.x._wait(max(.07, plan.timing.game_delay/3))
-            return False
-
-        for attempt in range(2):
-            if not dark and not self.shown():
-                raise SafetyError("RGB-палитра закрылась; повторный клик по полю отменён")
-            self.x._click(point, plan)
-            if attempt:
-                # A focused TextBox with ignored editing keys can still select
-                # its number by mouse. Keep the drag inside this field only.
-                self.x._press(kind="field-select")
-                try:
-                    self.x._wait(plan.timing.control_hold)
-                    start, end = point[0]+state.client.x, local.x+1+state.client.x
-                    for step in range(1, 9):
-                        self.x._move(round(start+(end-start)*step/8), point[1]+state.client.y)
-                        self.x._wait(max(.025, plan.timing.game_delay/6))
-                finally:
-                    self.x._release()
-                self.x._wait(plan.timing.control_settle)
+        if not dark and not self.shown():
+            raise SafetyError("RGB-палитра закрылась; клик по полю отменён")
+        self.tap(point, plan)
+        if select:
+            self.x._press(kind="field-select")
             try:
-                writer(number, self.x._guard, self.x._wait, confirm_cleared=cleared, selected=bool(attempt))
-                self.x._wait(plan.timing.control_settle)
-                return
-            except FieldNotCleared:
-                continue
-        self.x._control_failure("field-clear", "empty or zero", observed,
-                                "Не удалось очистить числовое поле. Новое число не вводилось. "
-                                "Сохранён снимок number-field.png; проверьте фокус поля.")
+                self.x._wait(max(.05, min(.1, plan.timing.game_delay/3)))
+                start, end = point[0]+state.client.x, local.x+1+state.client.x
+                for step in range(1, 9):
+                    self.x._move(round(start+(end-start)*step/8), point[1]+state.client.y)
+                    self.x._wait(.02)
+            finally:
+                self.x._release()
+        # Empty-field recognition incorrectly rejected a real empty TextBox.
+        # Complete this focused transaction, then verify the committed RGB/size.
+        self.x._control_log[-1].update(number=number, selected=select)
+        writer(number, self.x._guard, self.x._wait, selected=select)
+        self.x._wait(max(.08, plan.timing.game_delay/2))
 
     def color_matches(self, rgb, plan):
         stable = 0
@@ -117,7 +103,7 @@ class PopupController:
                     if not self.shown():
                         raise SafetyError("RGB-палитра закрылась перед вводом. Штрих отменён.")
                     if actual[index] != number:
-                        self.edit(point, number, plan)
+                        self.edit(point, number, plan, select=bool(attempt))
                 if self.color_matches(rgb, plan):
                     break
             else:
@@ -156,7 +142,7 @@ class PopupController:
             if actual == width:
                 self.x._width = width
                 return
-            self.edit(self.controls.brush_field, width, plan)
+            self.edit(self.controls.brush_field, width, plan, select=bool(attempt))
         actual = self.read_width(plan)
         if actual != width:
             self.x._brush_failure(width, actual, "Числовое поле не приняло размер.")
@@ -170,6 +156,6 @@ class PopupController:
         if changed:
             self.set_width(width, plan)
             # Digits must not leave the game in an eraser/eyedropper shortcut.
-            self.x._click(self.x.profile.brush_tool, plan)
+            self.tap(self.x.profile.brush_tool, plan)
             self.x._tool_selected = True
         self.ensure(False, plan)

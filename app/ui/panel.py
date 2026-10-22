@@ -982,7 +982,7 @@ class MainWindow(StudioActions, QMainWindow):
             self._save_profile((popup_screenshot_profile if popup else screenshot_profile)(state))
             if popup:
                 self.brush_opacity.setValue(100)
-                self.log.setText("RGB v3: очистка проверяется перед вводом числа; при сбое текст выделяется мышью. "
+                self.log.setText("RGB v4: удалить → ввести → Enter; проверяется выбранный цвет и размер. "
                                  "Закройте палитру, сбросьте масштаб и очистите холст → TEST DRAW. "
                                  "Для рисунка используйте Image Import → IMPORT IMAGE.")
             else:

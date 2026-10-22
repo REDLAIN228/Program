@@ -13,10 +13,6 @@ class SafetyError(RuntimeError):
     pass
 
 
-class FieldNotCleared(SafetyError):
-    pass
-
-
 class DeadlineReached(SafetyError):
     pass
 
@@ -95,13 +91,13 @@ class DrawingExecutor:
             self.backend.down()
         self._released_at = None
 
-    def _arrive(self, point, plan, *, pen_start=False):
+    def _arrive(self, point, plan, *, pen_start=False, delay=None):
         """Do not press while Windows or the game still sees the previous position."""
         if pen_start:
             # Reassert pen-up at the stationary start after leaving controls.
             # Do not let a slider's drag capture become the first paint stroke.
             self._release()
-        self._wait(plan.timing.control_hold*self._latency)
+        self._wait((plan.timing.control_hold if delay is None else delay)*self._latency)
         position = getattr(self.backend, "cursor_position", None)
         if position is None:
             return
