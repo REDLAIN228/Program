@@ -5,7 +5,7 @@ import time
 import pytest
 from PIL import Image
 
-from app.automation import DrawingExecutor, SafetyError, WindowState
+from app.automation import DrawingExecutor, FieldNotCleared, SafetyError, WindowState
 from app.game_profile import popup_screenshot_profile, restrict_game_profile
 from app.models import Calibration, Plan, Rect, Stroke, Timing
 from app.size_ocr import read_numeric_size
@@ -35,6 +35,7 @@ class PopupBackend:
     def move(self, x, y): self.point = x-state().client.x, y-state().client.y
     def up(self): self.pressed = False
     def read_numeric_size(self, region): return self.width
+    def read_number_field(self, region, dark_text): return dict(cleared=True, value=None)
 
     def sample(self, x, y):
         point = x-state().client.x, y-state().client.y
@@ -68,9 +69,11 @@ class PopupBackend:
         else:
             raise AssertionError(f"Unexpected click: {self.point}")
 
-    def replace_number(self, value, guard, wait):
+    def replace_number(self, value, guard, wait, *, confirm_cleared=None, selected=False):
         guard()
         wait(.035)
+        if confirm_cleared and not confirm_cleared():
+            raise FieldNotCleared("Not cleared")
         self.edits.append((self.focused, value))
         self.brush = False
         if self.focused == "size":
@@ -104,15 +107,16 @@ def test_profile_roundtrip_does_not_migrate_to_old_game():
         popup_screenshot_profile(replace(state(), process="other.exe"))
 
 
-def test_old_popup_profile_moves_clicks_to_right_edge_and_requires_new_test():
+@pytest.mark.parametrize("adapter", ["roblox-popup-rgb-v1", "roblox-popup-rgb-v2"])
+def test_old_popup_profile_moves_clicks_to_right_edge_and_requires_new_test(adapter):
     p = popup_screenshot_profile(state())
-    p.adapter, p.verified = "roblox-popup-rgb-v1", True
+    p.adapter, p.verified = adapter, True
     p.popup_controls = replace(p.popup_controls, rgb_fields=((624, 564), (726, 564), (826, 564)),
                                brush_field=(652, 692))
     assert restrict_game_profile(p)
     assert p.popup_controls.rgb_fields == ((649, 564), (750, 564), (851, 564))
     assert p.popup_controls.brush_field == (700, 692)
-    assert p.adapter == "roblox-popup-rgb-v2" and not p.verified
+    assert p.adapter == "roblox-popup-rgb-v3" and not p.verified
     p.validate()
     assert not restrict_game_profile(p)
 
@@ -189,6 +193,49 @@ def test_new_profile_rejects_unsupported_opacity():
         DrawingExecutor(PopupBackend(p), p).run(drawing, require_verified=False)
 
 
+def test_ignored_delete_stops_before_any_new_digits_or_paint():
+    p = popup_screenshot_profile(state())
+    class CannotClear(PopupBackend):
+        def read_number_field(self, region, dark_text):
+            return dict(cleared=False, value=255)
+    backend = CannotClear(p)
+    executor = DrawingExecutor(backend, p)
+    with pytest.raises(SafetyError, match="очистить"):
+        executor.run(plan(), require_verified=False)
+    assert not backend.edits and not backend.drawing and not backend.pressed
+    assert any(entry["kind"] == "field-select" for entry in executor._control_log)
+
+
+def test_mouse_selection_retries_a_field_that_did_not_clear_on_first_attempt():
+    p = popup_screenshot_profile(state())
+    class RequiresSelection(PopupBackend):
+        selected = False
+        def move(self, x, y):
+            old = self.point
+            super().move(x, y)
+            if self.pressed and self.point[0] < old[0]-4:
+                self.selected = True
+        def read_number_field(self, region, dark_text):
+            return dict(cleared=self.selected, value=None if self.selected else 255)
+    backend = RequiresSelection(p)
+    executor = DrawingExecutor(backend, p)
+    assert executor.run(plan(), require_verified=False) == "finished"
+    assert backend.selected and backend.drawing[0] == ((0, 0, 0), 1)
+
+
+def test_focus_failure_during_clear_confirmation_does_not_retry_typing():
+    p = popup_screenshot_profile(state())
+    class LostFocus(PopupBackend):
+        def read_number_field(self, region, dark_text):
+            raise SafetyError("Focus lost")
+    backend = LostFocus(p)
+    executor = DrawingExecutor(backend, p)
+    with pytest.raises(SafetyError, match="Focus lost"):
+        executor.run(plan(), require_verified=False)
+    assert not backend.edits and not backend.drawing and not backend.pressed
+    assert not any(entry["kind"] == "field-select" for entry in executor._control_log)
+
+
 def test_close_rgb_values_are_entered_exactly_instead_of_reusing_nearby_color():
     p = popup_screenshot_profile(state())
     backend = PopupBackend(p)
@@ -211,6 +258,7 @@ def test_popup_profile_button_and_calibration_preserve_old_profile(qapp, tmp_pat
     panel.ready_profile.click()
     old_name = panel.profile.name
     panel.popup_profile.click()
+    assert "RGB v3" in panel.popup_profile.text()
     assert not errors and panel.profile.popup_controls is not None
     assert panel.profile.name != old_name and old_name in panel.profiles
     assert panel.store.profiles()[panel.profile.name].popup_controls == panel.profile.popup_controls

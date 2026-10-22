@@ -1,5 +1,5 @@
 """Numeric controls for the screenshot preset with an overlapping RGB popup."""
-from app.automation import SafetyError
+from app.automation import FieldNotCleared, SafetyError
 from app.models import Rect
 
 
@@ -44,9 +44,55 @@ class PopupController:
         writer = getattr(self.x.backend, "replace_number", None)
         if writer is None:
             raise SafetyError("Для нового профиля нужен ввод чисел с клавиатуры Windows")
-        self.x._click(point, plan)
-        writer(number, self.x._guard, self.x._wait)
-        self.x._wait(plan.timing.control_settle)
+        if not getattr(self.x.backend, "read_number_field", None):
+            raise SafetyError("Нет проверки очистки числового поля; ввод нового числа отменён")
+        dark = point == self.controls.brush_field
+        local = (self.controls.brush_readout if dark else Rect(point[0]-51, point[1]-12, 53, 24))
+        state = self.x._guard()
+        region = Rect(local.x+state.client.x, local.y+state.client.y, local.width, local.height)
+        observed = {}
+
+        def cleared():
+            nonlocal observed
+            stable = 0
+            for attempt in range(14):
+                self.x._guard()
+                if not all(self.x.backend.point_belongs_to_target(px, py) for px, py in
+                           [(region.x, region.y), (region.x+region.width-1, region.y+region.height-1)]):
+                    raise SafetyError("Числовое поле перекрыто другим окном")
+                observed = self.x.backend.read_number_field(region, dark)
+                stable = stable+1 if observed.get("cleared") else 0
+                if stable == 2:
+                    return True
+                self.x._wait(max(.07, plan.timing.game_delay/3))
+            return False
+
+        for attempt in range(2):
+            if not dark and not self.shown():
+                raise SafetyError("RGB-палитра закрылась; повторный клик по полю отменён")
+            self.x._click(point, plan)
+            if attempt:
+                # A focused TextBox with ignored editing keys can still select
+                # its number by mouse. Keep the drag inside this field only.
+                self.x._press(kind="field-select")
+                try:
+                    self.x._wait(plan.timing.control_hold)
+                    start, end = point[0]+state.client.x, local.x+1+state.client.x
+                    for step in range(1, 9):
+                        self.x._move(round(start+(end-start)*step/8), point[1]+state.client.y)
+                        self.x._wait(max(.025, plan.timing.game_delay/6))
+                finally:
+                    self.x._release()
+                self.x._wait(plan.timing.control_settle)
+            try:
+                writer(number, self.x._guard, self.x._wait, confirm_cleared=cleared, selected=bool(attempt))
+                self.x._wait(plan.timing.control_settle)
+                return
+            except FieldNotCleared:
+                continue
+        self.x._control_failure("field-clear", "empty or zero", observed,
+                                "Не удалось очистить числовое поле. Новое число не вводилось. "
+                                "Сохранён снимок number-field.png; проверьте фокус поля.")
 
     def color_matches(self, rgb, plan):
         stable = 0

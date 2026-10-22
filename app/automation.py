@@ -13,6 +13,10 @@ class SafetyError(RuntimeError):
     pass
 
 
+class FieldNotCleared(SafetyError):
+    pass
+
+
 class DeadlineReached(SafetyError):
     pass
 

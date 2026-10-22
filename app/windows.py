@@ -8,7 +8,7 @@ from pathlib import PureWindowsPath
 import threading
 import time
 
-from app.automation import SafetyError, WindowState
+from app.automation import FieldNotCleared, SafetyError, WindowState
 from app.models import Rect
 
 
@@ -203,13 +203,19 @@ class Win32Backend:
         self._send(0x0004)
 
     def _key(self, vk, up=False):
-        flags = (0x0001 if vk in (0x23, 0x24, 0x2E) else 0) | (0x0002 if up else 0)
-        event = INPUT(type=1, ki=KEYBDINPUT(vk, 0, flags, 0, 0))
+        # The game's text entry can accept printable VK events while ignoring
+        # edit keys lacking a hardware scan code. Use ordinary SendInput scan
+        # packets for editing/commit; printable digits keep the existing VK path.
+        editing = {0x08: (0x0E, False), 0x0D: (0x1C, False),
+                   0x23: (0x4F, True), 0x2E: (0x53, True)}
+        scan, extended = editing.get(vk, (0, False))
+        flags = (0x0008 if scan else 0) | int(extended) | (0x0002 if up else 0)
+        event = INPUT(type=1, ki=KEYBDINPUT(0 if scan else vk, scan, flags, 0, 0))
         with self._lock:
             if user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(INPUT)) != 1:
                 raise SafetyError("Windows отклонила ввод числа через SendInput")
 
-    def replace_number(self, number, guard, wait):
+    def replace_number(self, number, guard, wait, *, confirm_cleared=None, selected=False):
         if type(number) is not int or not 0 <= number <= 999:
             raise ValueError("Допускаются только целые числа 0–999")
         held = []
@@ -229,11 +235,16 @@ class Win32Backend:
             # Roblox TextBoxes may ignore Ctrl+A. The field is clicked on its
             # right side; End plus explicit deletion also repairs concatenated
             # values such as "0255" from previous attempts.
-            down(0x23)
-            up(0x23)
+            if not selected:
+                down(0x23)
+                up(0x23)
             for vk in (0x08,)*8+(0x2E,)*8:
                 down(vk)
                 up(vk)
+            if confirm_cleared is not None:
+                guard()
+                if not confirm_cleared():
+                    raise FieldNotCleared("Старое число не удалено. Новое число не вводилось.")
             # Some numeric boxes restore "0" when emptied. Keep that default
             # before the new digits, rather than appending it to their end.
             down(0x23)
@@ -332,6 +343,16 @@ class Win32Backend:
         self._size_values = (getattr(self, "_size_values", [])+[value])[-12:]
         return value
 
+    def read_number_field(self, region, dark_text):
+        import mss
+        from PIL import Image
+        from app.size_ocr import number_field_state
+        with mss.mss() as capture:
+            shot = capture.grab({"left": region.x, "top": region.y,
+                                 "width": region.width, "height": region.height})
+        self._field_image = Image.frombytes("RGB", shot.size, shot.rgb)
+        return number_field_state(self._field_image, dark_text)
+
     def save_control_diagnostic(self, profile, details):
         from app.storage import data_directory, write_json
         directory = data_directory()/"logs"
@@ -343,6 +364,8 @@ class Win32Backend:
         elif profile.popup_controls:
             image = capture_client(state).crop((398, 40, 970, 730))
             image.save(directory/"controls.png")
+        if getattr(self, "_field_image", None) is not None:
+            self._field_image.save(directory/"number-field.png")
         write_json(directory/"controls.json", {**details, "profile": profile.to_dict()})
         return str(directory/"controls.json")
 

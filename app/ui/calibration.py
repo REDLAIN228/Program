@@ -71,7 +71,7 @@ class CalibrationDialog(QDialog):
         preset.clicked.connect(self.apply_game_preset)
         preset_row = QHBoxLayout()
         preset_row.addWidget(preset, 1)
-        popup_preset = QPushButton("Новый плейс · RGB")
+        popup_preset = QPushButton("Новый плейс · RGB v3")
         popup_preset.clicked.connect(lambda: self.apply_game_preset(True))
         preset_row.addWidget(popup_preset)
         self.slider_range_button = QPushButton("Диапазон ползунка")

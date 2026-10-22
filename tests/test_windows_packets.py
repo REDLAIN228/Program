@@ -67,15 +67,16 @@ def test_numeric_keyboard_packets_clear_replace_and_commit_without_clipboard(mon
     def send(count, pointer, size):
         event = ctypes.cast(pointer, ctypes.POINTER(INPUT)).contents
         assert event.type == 1
-        packets.append((event.ki.wVk, event.ki.dwFlags))
+        packets.append((event.ki.wVk, event.ki.wScan, event.ki.dwFlags))
         return 1
     monkeypatch.setattr(native, "user32", SimpleNamespace(SendInput=send), raising=False)
     backend = native.Win32Backend.__new__(native.Win32Backend)
     backend._lock = threading.Lock()
     backend.replace_number(32, lambda: guards.append(True), waits.append)
-    assert packets == ([(0x23, 1), (0x23, 3)]+[(0x08, 0), (0x08, 2)]*8
-                       +[(0x2E, 1), (0x2E, 3)]*8+[(0x23, 1), (0x23, 3), (ord("3"), 0), (ord("3"), 2),
-                       (ord("2"), 0), (ord("2"), 2), (0x0D, 0), (0x0D, 2)])
+    assert packets == ([(0, 0x4F, 9), (0, 0x4F, 11)]+[(0, 0x0E, 8), (0, 0x0E, 10)]*8
+                       +[(0, 0x53, 9), (0, 0x53, 11)]*8+[(0, 0x4F, 9), (0, 0x4F, 11),
+                       (ord("3"), 0, 0), (ord("3"), 0, 2), (ord("2"), 0, 0), (ord("2"), 0, 2),
+                       (0, 0x1C, 8), (0, 0x1C, 10)])
     assert len(guards) == 21 and waits == [.035]*42
 
 
@@ -156,3 +157,54 @@ def test_number_box_restoring_zero_does_not_append_zero_to_new_value():
     backend._key = box.key
     backend.replace_number(128, lambda: None, lambda _: None)
     assert int(box.text) == 128
+
+
+def test_scan_code_edit_keys_clear_target_that_ignores_virtual_edit_keys(monkeypatch):
+    import app.windows as native
+    box = TextBoxIgnoringSelectAll("0255", 0)
+    def send(count, pointer, size):
+        event = ctypes.cast(pointer, ctypes.POINTER(INPUT)).contents.ki
+        if event.dwFlags & 8:
+            vk = {0x4F: 0x23, 0x0E: 0x08, 0x53: 0x2E, 0x1C: 0x0D}[event.wScan]
+        elif event.wVk in (0x23, 0x08, 0x2E):
+            return 1  # OS accepted the VK packet; this modeled game ignores it.
+        else:
+            vk = event.wVk
+        box.key(vk, bool(event.dwFlags & 2))
+        return 1
+    monkeypatch.setattr(native, "user32", SimpleNamespace(SendInput=send), raising=False)
+    backend = native.Win32Backend.__new__(native.Win32Backend)
+    backend._lock = threading.Lock()
+    backend.replace_number(128, lambda: None, lambda _: None, confirm_cleared=lambda: box.text == "")
+    assert box.before_digits[0] == "" and box.text == "128"
+
+
+def test_failed_clear_confirmation_never_sends_digits_or_commit():
+    from app.automation import FieldNotCleared
+    from app.windows import Win32Backend
+    packets = []
+    backend = Win32Backend.__new__(Win32Backend)
+    backend._key = lambda vk, up=False: packets.append((vk, up))
+    with pytest.raises(FieldNotCleared):
+        backend.replace_number(128, lambda: None, lambda _: None, confirm_cleared=lambda: False)
+    assert not any(vk == 0x0D or ord("0") <= vk <= ord("9") for vk, _ in packets)
+
+
+def test_mouse_selection_is_deleted_before_end_can_collapse_it():
+    from app.windows import Win32Backend
+    class SelectedBox(TextBoxIgnoringSelectAll):
+        selection = True
+        def key(self, vk, up=False):
+            if not up and self.selection:
+                if vk == 0x08:
+                    self.text, self.caret, self.selection = "", 0, False
+                    return
+                if vk == 0x23:
+                    self.selection = False
+            super().key(vk, up)
+    box = SelectedBox("255"*10, 0)
+    backend = Win32Backend.__new__(Win32Backend)
+    backend._key = box.key
+    backend.replace_number(128, lambda: None, lambda _: None, selected=True,
+                           confirm_cleared=lambda: box.text == "")
+    assert box.text == "128" and box.before_digits[0] == ""

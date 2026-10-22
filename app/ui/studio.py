@@ -176,7 +176,7 @@ def build_studio(p):
     p.priority_view.region_selected.connect(p.add_priority_region)
     f = forms[3]
     f.addRow("Профиль", p.profile_combo)
-    p.popup_profile = button("НОВЫЙ ПЛЕЙС · RGB · 1366×768", p.install_popup_profile)
+    p.popup_profile = button("НОВЫЙ ПЛЕЙС · RGB v3 · 1366×768", p.install_popup_profile)
     f.addRow(p.popup_profile)
     p.ready_profile = button("ГОТОВЫЙ ПРОФИЛЬ · 1366×768", p.install_game_profile)
     f.addRow(p.ready_profile)

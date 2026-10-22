@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from app.size_ocr import read_size
+from app.size_ocr import number_field_state, read_size
 
 
 FIXTURES = Path(__file__).parent/"fixtures"
@@ -39,3 +39,24 @@ def test_zero_leading_zero_and_out_of_range_values_are_rejected():
     sheet = Image.open(FIXTURES/"invalid-brush-size-labels.png")
     for row in range(4):
         assert read_size(sheet.crop((0, row*20, 38, (row+1)*20))) is None
+
+
+def test_numeric_field_is_only_cleared_when_blank_or_default_zero():
+    sheet = Image.open(FIXTURES/"rgb-field-states.png")
+    for row, expected in enumerate([True, True, False, False, False, False, False]):
+        reading = number_field_state(sheet.crop((0, row*24, 53, (row+1)*24)), dark_text=False)
+        assert reading["cleared"] is expected, (row, reading)
+    reading = number_field_state(sheet.crop((0, 6*24, 53, 7*24)), dark_text=False)
+    assert reading["selected"]  # Highlighted old text is not an empty field.
+
+
+def test_black_numeric_field_does_not_hide_old_number_or_visible_caret():
+    from PIL import ImageDraw
+    sheet = Image.open(FIXTURES/"numeric-size-labels.png")
+    assert number_field_state(Image.new("RGB", (105, 32), "white"), True)["cleared"]
+    for row, expected in enumerate([True, False, False, False, False, False, False]):
+        image = sheet.crop((0, row*32, 105, (row+1)*32))
+        assert number_field_state(image, True)["cleared"] is expected
+    caret = Image.new("RGB", (105, 32), "white")
+    ImageDraw.Draw(caret).line((80, 5, 80, 26), fill="black")
+    assert not number_field_state(caret, True)["cleared"]

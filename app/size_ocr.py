@@ -37,6 +37,22 @@ def read_numeric_size(image):
     return _read_mask(np.max(a, axis=2) < 90, 0, 999)
 
 
+def number_field_state(image, dark_text):
+    """Confirm blank/default zero, never assume that edit-key delivery cleared it.
+
+    A caret is deliberately not erased from the mask: it can resemble '1'.
+    The controller waits for two readable frames during the caret's blink.
+    """
+    a = np.asarray(image.convert("RGB"), dtype=np.int16)
+    spread = np.max(a, axis=2)-np.min(a, axis=2)
+    selected = bool(np.any((spread > 65) & (np.max(a, axis=2) > 110)))
+    mask = (np.max(a, axis=2) < 90 if dark_text else (np.min(a, axis=2) > 150) & (spread < 40))
+    count = int(mask.sum())
+    value = _read_mask(mask, 0, 999) if count else None
+    return dict(cleared=not selected and (count == 0 or value == 0), value=value,
+                ink_pixels=count, selected=selected)
+
+
 def read_percent(image):
     """Pink opacity label with a required trailing percent sign; never guess."""
     a = np.asarray(image.convert("RGB"), dtype=np.int16)
