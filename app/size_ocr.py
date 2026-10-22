@@ -34,7 +34,7 @@ def read_size(image):
 def read_numeric_size(image):
     """Black digits on the white brush-size text box of the popup preset."""
     a = np.asarray(image.convert("RGB"), dtype=np.int16)
-    return _read_mask(np.max(a, axis=2) < 90, 1, 999)
+    return _read_mask(np.max(a, axis=2) < 90, 0, 999)
 
 
 def read_percent(image):
@@ -110,7 +110,7 @@ def _read_mask(mask, minimum, maximum):
 
     direct = [part(left, right) for left, right in runs]
     if all(direct):
-        if direct[0][0] == "0":
+        if direct[0][0] == "0" and (minimum != 0 or len(direct) != 1):
             return None
         value = int("".join(d[0] for d in direct))
         return value if minimum <= value <= maximum else None

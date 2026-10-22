@@ -203,7 +203,8 @@ class Win32Backend:
         self._send(0x0004)
 
     def _key(self, vk, up=False):
-        event = INPUT(type=1, ki=KEYBDINPUT(vk, 0, 0x0002 if up else 0, 0, 0))
+        flags = (0x0001 if vk in (0x23, 0x24, 0x2E) else 0) | (0x0002 if up else 0)
+        event = INPUT(type=1, ki=KEYBDINPUT(vk, 0, flags, 0, 0))
         with self._lock:
             if user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(INPUT)) != 1:
                 raise SafetyError("Windows отклонила ввод числа через SendInput")
@@ -222,12 +223,21 @@ class Win32Backend:
         def up(vk):
             self._key(vk, True)
             held.remove(vk)
+            wait(.035)  # Give the game a frame with the key released before repeating it.
 
         try:
-            down(0x11)  # Ctrl+A; no clipboard access or keyboard-layout switch.
-            down(0x41)
-            up(0x41)
-            up(0x11)
+            # Roblox TextBoxes may ignore Ctrl+A. The field is clicked on its
+            # right side; End plus explicit deletion also repairs concatenated
+            # values such as "0255" from previous attempts.
+            down(0x23)
+            up(0x23)
+            for vk in (0x08,)*8+(0x2E,)*8:
+                down(vk)
+                up(vk)
+            # Some numeric boxes restore "0" when emptied. Keep that default
+            # before the new digits, rather than appending it to their end.
+            down(0x23)
+            up(0x23)
             for digit in str(number):
                 down(ord(digit))
                 up(ord(digit))

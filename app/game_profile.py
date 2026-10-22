@@ -10,7 +10,7 @@ PROFILE_NAME = "Roblox · персонаж слева · 1366×768"
 FREE_SLIDER_ADAPTER = "roblox-free-slider-v5"
 LEGACY_ADAPTERS = {"roblox-free-slider-v1", "roblox-free-slider-v2", "roblox-free-slider-v3", "roblox-free-slider-v4"}
 POPUP_PROFILE_NAME = "Roblox · новый плейс · RGB-палитра · 1366×768"
-POPUP_ADAPTER = "roblox-popup-rgb-v1"
+POPUP_ADAPTER = "roblox-popup-rgb-v2"
 
 
 def opacity_slider():
@@ -34,6 +34,16 @@ def feedback_slider(slider):
 
 def restrict_game_profile(profile: Calibration) -> bool:
     """Migrate the old screenshot preset before it can touch the paid size tab."""
+    if (profile.adapter == "roblox-popup-rgb-v1" and profile.popup_controls
+            and profile.client_size == (1366, 768) and "roblox" in profile.target_process.casefold()):
+        popup = profile.popup_controls
+        fields = (((649, 564), (750, 564), (851, 564))
+                  if popup.rgb_fields == ((624, 564), (726, 564), (826, 564)) else popup.rgb_fields)
+        brush = (700, 692) if popup.brush_field == (652, 692) else popup.brush_field
+        profile.popup_controls = replace(popup, rgb_fields=fields, brush_field=brush)
+        profile.adapter = POPUP_ADAPTER
+        profile.verified = False
+        return True
     old_geometry = (profile.canvas == Rect(785, 114, 555, 555) and profile.color_wheel is not None
                     and profile.color_wheel.center == (644, 209))
     if profile.name != PROFILE_NAME and profile.adapter not in LEGACY_ADAPTERS | {FREE_SLIDER_ADAPTER} and not old_geometry:
@@ -115,9 +125,9 @@ def popup_screenshot_profile(state: WindowState) -> Calibration:
         brush_tool=(608, 631), color_tolerance=3, adapter=POPUP_ADAPTER,
         popup_controls=PopupControls(
             (528, 632), Rect(546, 230, 338, 403),
-            ((624, 564), (726, 564), (826, 564)), (566, 516),
+            ((649, 564), (750, 564), (851, 564)), (566, 516),
             (Swatch((20, 20, 30), (582, 628)), Swatch((20, 20, 30), (800, 245))),
-            (652, 692), Rect(600, 676, 105, 32)),
+            (700, 692), Rect(600, 676, 105, 32)),
         # Layers, shapes, resolution, save, undo, trash and other tools are manual.
         forbidden=[Rect(974, 242, 230, 300), Rect(282, 313, 105, 128),
                    Rect(655, 601, 300, 60), Rect(773, 662, 182, 60), Rect(410, 601, 76, 60)])

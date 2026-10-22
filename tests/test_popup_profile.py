@@ -104,6 +104,19 @@ def test_profile_roundtrip_does_not_migrate_to_old_game():
         popup_screenshot_profile(replace(state(), process="other.exe"))
 
 
+def test_old_popup_profile_moves_clicks_to_right_edge_and_requires_new_test():
+    p = popup_screenshot_profile(state())
+    p.adapter, p.verified = "roblox-popup-rgb-v1", True
+    p.popup_controls = replace(p.popup_controls, rgb_fields=((624, 564), (726, 564), (826, 564)),
+                               brush_field=(652, 692))
+    assert restrict_game_profile(p)
+    assert p.popup_controls.rgb_fields == ((649, 564), (750, 564), (851, 564))
+    assert p.popup_controls.brush_field == (700, 692)
+    assert p.adapter == "roblox-popup-rgb-v2" and not p.verified
+    p.validate()
+    assert not restrict_game_profile(p)
+
+
 @pytest.mark.parametrize("opened", [False, True])
 def test_numeric_rgb_and_size_close_popup_before_paint_and_reuse_cached_controls(opened):
     p = popup_screenshot_profile(state())
@@ -150,6 +163,15 @@ def test_rejected_numeric_size_stops_before_wrong_width_stroke():
     with pytest.raises(SafetyError, match="размер|Размер"):
         DrawingExecutor(backend, p).run(plan(), require_verified=False)
     assert backend.drawing == [((0, 0, 0), 1)] and not backend.pressed
+
+
+def test_zero_brush_size_from_failed_old_input_is_repaired_before_painting():
+    p = popup_screenshot_profile(state())
+    backend = PopupBackend(p)
+    backend.width = 0
+    assert DrawingExecutor(backend, p).run(plan(), require_verified=False) == "finished"
+    assert backend.drawing[0] == ((0, 0, 0), 1)
+    assert ("size", 1) in backend.edits
 
 
 def test_numeric_brush_check_does_not_draw():
@@ -211,9 +233,9 @@ def test_popup_profile_button_and_calibration_preserve_old_profile(qapp, tmp_pat
     panel.close()
 
 
-@pytest.mark.parametrize("number", [1, 2, 4, 8, 16, 32])
+@pytest.mark.parametrize("number", [0, 1, 2, 4, 8, 16, 32])
 def test_black_numeric_brush_readout(number):
-    index = [1, 2, 4, 8, 16, 32].index(number)
+    index = [0, 1, 2, 4, 8, 16, 32].index(number)
     fixture = Image.open(Path(__file__).parent/"fixtures"/"numeric-size-labels.png")
     image = fixture.crop((0, index*32, 105, (index+1)*32))
     assert read_numeric_size(image) == number

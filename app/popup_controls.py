@@ -97,7 +97,7 @@ class PopupController:
                        [(region.x, region.y), (region.x+r.width-1, region.y+r.height-1)]):
                 raise SafetyError("Число размера кисти перекрыто другим окном")
             actual = reader(region)
-            if actual is not None and 1 <= actual <= 999 and actual == previous:
+            if actual is not None and 0 <= actual <= 999 and actual == previous:
                 return actual
             previous = actual
             self.x._wait(max(.1, plan.timing.game_delay/2))

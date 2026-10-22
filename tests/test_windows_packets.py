@@ -61,7 +61,7 @@ def test_positioned_press_reports_rejected_input(monkeypatch):
         backend.down_at(100, 200)
 
 
-def test_numeric_keyboard_packets_select_replace_and_commit_without_clipboard(monkeypatch):
+def test_numeric_keyboard_packets_clear_replace_and_commit_without_clipboard(monkeypatch):
     import app.windows as native
     packets, guards, waits = [], [], []
     def send(count, pointer, size):
@@ -73,21 +73,86 @@ def test_numeric_keyboard_packets_select_replace_and_commit_without_clipboard(mo
     backend = native.Win32Backend.__new__(native.Win32Backend)
     backend._lock = threading.Lock()
     backend.replace_number(32, lambda: guards.append(True), waits.append)
-    assert packets == [(0x11, 0), (0x41, 0), (0x41, 2), (0x11, 2),
-                       (ord("3"), 0), (ord("3"), 2), (ord("2"), 0), (ord("2"), 2),
-                       (0x0D, 0), (0x0D, 2)]
-    assert len(guards) == 5 and len(waits) == 5
+    assert packets == ([(0x23, 1), (0x23, 3)]+[(0x08, 0), (0x08, 2)]*8
+                       +[(0x2E, 1), (0x2E, 3)]*8+[(0x23, 1), (0x23, 3), (ord("3"), 0), (ord("3"), 2),
+                       (ord("2"), 0), (ord("2"), 2), (0x0D, 0), (0x0D, 2)])
+    assert len(guards) == 21 and waits == [.035]*42
 
 
-def test_numeric_keyboard_releases_control_when_stop_interrupts_input(monkeypatch):
+@pytest.mark.parametrize("stop_at", [1, 3, 5, 19])
+def test_numeric_keyboard_releases_editing_keys_when_stop_interrupts_input(monkeypatch, stop_at):
     import app.windows as native
     packets = []
     backend = native.Win32Backend.__new__(native.Win32Backend)
     backend._key = lambda vk, up=False: packets.append((vk, up))
+    waits = []
     def stop(seconds):
-        raise InterruptedError("F9")
+        waits.append(seconds)
+        if len(waits) == stop_at:
+            raise InterruptedError("F9")
     with pytest.raises(InterruptedError, match="F9"):
         backend.replace_number(255, lambda: None, stop)
-    assert packets == [(0x11, False), (0x11, True)]
+    held = set()
+    for vk, up in packets:
+        if up:
+            held.discard(vk)
+        else:
+            held.add(vk)
+    assert not held and not any(ord("0") <= vk <= ord("9") for vk, _ in packets)
     with pytest.raises(ValueError):
         backend.replace_number("255\n", lambda: None, lambda _: None)
+
+
+class TextBoxIgnoringSelectAll:
+    def __init__(self, text, caret):
+        self.text, self.caret = text, caret
+        self.before_digits = []
+
+    def key(self, vk, up=False):
+        if up:
+            return
+        if vk == 0x23:
+            self.caret = len(self.text)
+        elif vk == 0x08 and self.caret:
+            self.text = self.text[:self.caret-1]+self.text[self.caret:]
+            self.caret -= 1
+        elif vk == 0x2E:
+            self.text = self.text[:self.caret]+self.text[self.caret+1:]
+        elif ord("0") <= vk <= ord("9"):
+            self.before_digits.append(self.text)
+            self.text = self.text[:self.caret]+chr(vk)+self.text[self.caret:]
+            self.caret += 1
+        # Ctrl+A is deliberately ignored, as reported by the user.
+
+
+def test_ignored_select_all_reproduces_uploaded_0255_value():
+    box = TextBoxIgnoringSelectAll("255", 0)
+    for vk in (0x11, 0x41, ord("0"), 0x0D):
+        box.key(vk)
+    assert box.text == "0255"
+
+
+@pytest.mark.parametrize("old,caret,number", [("255", 0, 0), ("0255", 2, 128), ("0", 0, 255),
+                                               ("2552550", 4, 32), ("99999999", 1, 1)])
+def test_number_is_cleared_before_typing_even_when_select_all_is_ignored(old, caret, number):
+    from app.windows import Win32Backend
+    box = TextBoxIgnoringSelectAll(old, caret)
+    backend = Win32Backend.__new__(Win32Backend)
+    backend._key = box.key
+    backend.replace_number(number, lambda: None, lambda _: None)
+    assert box.before_digits[0] == ""
+    assert box.text == str(number)
+
+
+def test_number_box_restoring_zero_does_not_append_zero_to_new_value():
+    from app.windows import Win32Backend
+    class RestoresZero(TextBoxIgnoringSelectAll):
+        def key(self, vk, up=False):
+            super().key(vk, up)
+            if self.text == "":
+                self.text, self.caret = "0", 0
+    box = RestoresZero("255", 0)
+    backend = Win32Backend.__new__(Win32Backend)
+    backend._key = box.key
+    backend.replace_number(128, lambda: None, lambda _: None)
+    assert int(box.text) == 128
