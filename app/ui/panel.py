@@ -782,6 +782,8 @@ class MainWindow(StudioActions, QMainWindow):
         full_hd = self.quality.currentText() == "Full HD"
         target_size = (p.canvas.width, p.canvas.height) if p else ((1920, 1080) if full_hd else (512, 512))
         try:
+            if p and p.popup_controls and self.brush_opacity.value() != 100:
+                raise ValueError("Для нового плейса выберите непрозрачность 100%: на этом интерфейсе нет её настройки.")
             area = drawing_rect(target_size, self.drawing_format.currentText(),
                                 int(self.drawing_scale.currentText().rstrip("%")),
                                 (self.drawing_width.value(), self.drawing_height.value()))
@@ -799,7 +801,7 @@ class MainWindow(StudioActions, QMainWindow):
             return
         options = PlanOptions((area.width, area.height),
                               self.quality.currentText(), self.style.currentText(), self.speed.currentText(),
-                              self.time_limit(), [s.rgb for s in p.swatches] if p and not p.color_wheel else None,
+                              self.time_limit(), [s.rgb for s in p.swatches] if p and not p.dynamic_color else None,
                               widths,
                               self.crop_fit.isChecked(), self.remove_bg.isChecked(),
                               *(selection_clicks(p) if p else (1, 1)),
@@ -963,7 +965,10 @@ class MainWindow(StudioActions, QMainWindow):
         except Exception as exc:
             self.error(str(exc))
 
-    def install_game_profile(self):
+    def install_popup_profile(self):
+        self.install_game_profile(popup=True)
+
+    def install_game_profile(self, popup=False):
         if not self._require_free():
             return
         previous = self.local_mode, self.target
@@ -973,9 +978,15 @@ class MainWindow(StudioActions, QMainWindow):
             if state is None:
                 self.local_mode, self.target = previous
                 return
-            from app.game_profile import screenshot_profile
-            self._save_profile(screenshot_profile(state))
-            self.log.setText("Готовый профиль по новому скриншоту установлен: квадрат насыщается влево, "
+            from app.game_profile import screenshot_profile, popup_screenshot_profile
+            self._save_profile((popup_screenshot_profile if popup else screenshot_profile)(state))
+            if popup:
+                self.brush_opacity.setValue(100)
+                self.log.setText("Новый плейс: цвет вводится в RGB-палитре, размер — числом. "
+                                 "Закройте палитру, сбросьте масштаб и очистите холст → TEST DRAW. "
+                                 "Для рисунка используйте Image Import → IMPORT IMAGE.")
+            else:
+                self.log.setText("Готовый профиль по новому скриншоту установлен: квадрат насыщается влево, "
                              "непрозрачность 100% слева / 1% справа. "
                              "Очистите холст → CHECK BRUSH SIZE → TEST DRAW.")
         except Exception as exc:
@@ -987,7 +998,7 @@ class MainWindow(StudioActions, QMainWindow):
             return
         try:
             p = self.profile
-            if not p or not p.brush_slider or not p.brush_slider.readout:
+            if not p or not p.feedback:
                 raise ValueError("Сначала CALIBRATE → профиль игры без доната с проверкой числа размера.")
             if not self.hotkeys_ready:
                 raise SafetyError("Нужна рабочая аварийная остановка F9")
@@ -1037,18 +1048,23 @@ class MainWindow(StudioActions, QMainWindow):
             if self._get_target() is None:
                 return
             description = ("Программа нарисует три полоски: чёрную, красную и зелёную, сверху вниз. "
-                           if self.profile.color_wheel else "Программа нарисует короткую линию в центре холста. ")
+                           if self.profile.dynamic_color else "Программа нарисует короткую линию в центре холста. ")
             if self.profile.color_wheel and self.profile.opacity_slider and self.brush_opacity.value() < 100:
                 description += f"Затем четвёртую линию с непрозрачностью {self.brush_opacity.value()}%. "
-            if QMessageBox.question(self, "TEST DRAW · реальный ввод", description +
+            instructions = ("Закройте окно выбора цвета тем же цветным кругом. Сбросьте масштаб холста. "
+                            "Используйте размер окна и разрешение холста как на скриншоте; "
+                            "слои оставьте видимыми. Палитру программа откроет и закроет сама. "
+                            if self.profile.popup_controls else
                                     "Выберите обычную кисть без аэрографа и текстуры, непрозрачность 100%, "
                                     "стабилизатор 0%, масштаб холста 100%. "
-                                    "Откройте Цвет → Колесо и закройте список стилей. Продолжить?") != QMessageBox.StandardButton.Yes:
+                                    "Откройте Цвет → Колесо и закройте список стилей. ")
+            if QMessageBox.question(self, "TEST DRAW · реальный ввод", description + instructions +
+                                    "Продолжить?") != QMessageBox.StandardButton.Yes:
                 return
             p = self.profile
             p.verified = False
             self.store.save_profile(p)
-            if p.color_wheel:
+            if p.dynamic_color:
                 widths = sorted(b.pixels for b in p.brushes)
                 thin, thick = widths[0], widths[min(1, len(widths)-1)]
                 strokes = [Stroke(((.42, y), (.58, y)), color, width)
@@ -1060,7 +1076,7 @@ class MainWindow(StudioActions, QMainWindow):
             else:
                 color = min(p.swatches, key=lambda s: sum(s.rgb)).rgb
                 strokes = [Stroke(((.42, .50), (.58, .50)), color, min(b.pixels for b in p.brushes))]
-            timing = Timing.preset(self.speed.currentText() if p.brush_slider and p.brush_slider.readout else "Safe")
+            timing = Timing.preset(self.speed.currentText() if p.feedback else "Safe")
             timing = replace(timing, game_delay=self.game_delay.value()/1000)
             clicks = selection_clicks(p)
             plan = Plan((p.canvas.width, p.canvas.height), strokes, timing,
@@ -1109,6 +1125,9 @@ class MainWindow(StudioActions, QMainWindow):
             def execute(job):
                 try:
                     executor.park_pointer(plan)
+                    if executor._popup:
+                        executor._popup.ensure(False, plan)
+                        executor.park_pointer(plan)
                 except InterruptedError:
                     return ("stopped", None, None) if test else "stopped"
                 snapshot = self._capture_bridge.call(lambda: self._screenshot(target))
@@ -1176,7 +1195,7 @@ class MainWindow(StudioActions, QMainWindow):
                            "координаты и поддержку обычного ввода. Если тестовые штрихи уже были, очистите участок.")
                 return
             expected = ("Появились три полоски сверху вниз: чёрная, красная, зелёная? Красная толще остальных? "
-                        if self.profile.color_wheel else "В центре холста появилась короткая линия нужного цвета и толщины? ")
+                        if self.profile.dynamic_color else "В центре холста появилась короткая линия нужного цвета и толщины? ")
             if test_plan and any(stroke.opacity != 1 for stroke in test_plan.strokes):
                 expected += "Четвёртая чёрная полоска полупрозрачная, светлее первой? "
             answer = QMessageBox.question(self, "Проверка результата", f"Изменено пикселей: {changed}. " + expected +

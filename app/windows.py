@@ -202,6 +202,41 @@ class Win32Backend:
     def up(self):
         self._send(0x0004)
 
+    def _key(self, vk, up=False):
+        event = INPUT(type=1, ki=KEYBDINPUT(vk, 0, 0x0002 if up else 0, 0, 0))
+        with self._lock:
+            if user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(INPUT)) != 1:
+                raise SafetyError("Windows отклонила ввод числа через SendInput")
+
+    def replace_number(self, number, guard, wait):
+        if type(number) is not int or not 0 <= number <= 999:
+            raise ValueError("Допускаются только целые числа 0–999")
+        held = []
+
+        def down(vk):
+            guard()
+            held.append(vk)
+            self._key(vk)
+            wait(.035)
+
+        def up(vk):
+            self._key(vk, True)
+            held.remove(vk)
+
+        try:
+            down(0x11)  # Ctrl+A; no clipboard access or keyboard-layout switch.
+            down(0x41)
+            up(0x41)
+            up(0x11)
+            for digit in str(number):
+                down(ord(digit))
+                up(ord(digit))
+            down(0x0D)  # Commit the TextBox and release keyboard focus.
+            up(0x0D)
+        finally:
+            for vk in reversed(held):
+                self._key(vk, True)
+
     def sample(self, x, y):
         import mss
         with mss.mss() as capture:
@@ -274,6 +309,19 @@ class Win32Backend:
         self._opacity_image = Image.frombytes("RGB", shot.size, shot.rgb)
         return read_percent(self._opacity_image)
 
+    def read_numeric_size(self, region):
+        import mss
+        from PIL import Image
+        from app.size_ocr import read_numeric_size
+        with mss.mss() as capture:
+            shot = capture.grab({"left": region.x, "top": region.y,
+                                 "width": region.width, "height": region.height})
+        self._size_image = Image.frombytes("RGB", shot.size, shot.rgb)
+        self._size_region = region
+        value = read_numeric_size(self._size_image)
+        self._size_values = (getattr(self, "_size_values", [])+[value])[-12:]
+        return value
+
     def save_control_diagnostic(self, profile, details):
         from app.storage import data_directory, write_json
         directory = data_directory()/"logs"
@@ -281,6 +329,9 @@ class Win32Backend:
         state = self.snapshot()
         if profile.client_size == (1366, 768) and profile.color_wheel:
             image = capture_client(state).crop((545, 85, 765, 580))
+            image.save(directory/"controls.png")
+        elif profile.popup_controls:
+            image = capture_client(state).crop((398, 40, 970, 730))
             image.save(directory/"controls.png")
         write_json(directory/"controls.json", {**details, "profile": profile.to_dict()})
         return str(directory/"controls.json")

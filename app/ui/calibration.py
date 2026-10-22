@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QColorDialog, QDialog, QDialogButtonBox, QGridLay
 
 from app.automation import WindowState
 from app.models import Brush, BrushSlider, Calibration, ColorWheel, Rect, Swatch
-from app.game_profile import FREE_SLIDER_ADAPTER, screenshot_profile
+from app.game_profile import FREE_SLIDER_ADAPTER, screenshot_profile, popup_screenshot_profile
 from app.ui.common import STYLE, fit_window, pixmap
 
 
@@ -58,6 +58,7 @@ class CalibrationDialog(QDialog):
         self.color_tab = self.size_tab = None
         self.brush_slider, self.forbidden, self.adapter = None, [], None
         self.opacity_slider = None
+        self.popup_controls = None
         self.color_tolerance = 45
         self.wheel_points = []
         self.mode, self.first = "canvas", None
@@ -70,6 +71,9 @@ class CalibrationDialog(QDialog):
         preset.clicked.connect(self.apply_game_preset)
         preset_row = QHBoxLayout()
         preset_row.addWidget(preset, 1)
+        popup_preset = QPushButton("Новый плейс · RGB")
+        popup_preset.clicked.connect(lambda: self.apply_game_preset(True))
+        preset_row.addWidget(popup_preset)
         self.slider_range_button = QPushButton("Диапазон ползунка")
         self.slider_range_button.clicked.connect(self.set_slider_range)
         preset_row.addWidget(self.slider_range_button)
@@ -120,9 +124,9 @@ class CalibrationDialog(QDialog):
         self.refresh()
         fit_window(self, max(640, self.picture.width() + 50), self.picture.height() + 445)
 
-    def apply_game_preset(self):
+    def apply_game_preset(self, popup=False):
         try:
-            profile = screenshot_profile(self.state)
+            profile = (popup_screenshot_profile if popup else screenshot_profile)(self.state)
         except ValueError as exc:
             QMessageBox.warning(self, "Игровой профиль", str(exc))
             return
@@ -134,10 +138,14 @@ class CalibrationDialog(QDialog):
         self.color_wheel, self.color_tab, self.size_tab = profile.color_wheel, profile.color_tab, profile.size_tab
         self.brush_slider, self.forbidden, self.adapter = profile.brush_slider, profile.forbidden, profile.adapter
         self.opacity_slider = profile.opacity_slider
+        self.popup_controls = profile.popup_controls
         self.color_tolerance = profile.color_tolerance
         self.first, self.wheel_points = None, []
-        self.mode = "character"
-        self.instructions.setText("Профиль загружен. Проверьте рамки холста и персонажа. "
+        self.mode = "canvas" if popup else "character"
+        self.instructions.setText("Новый профиль загружен. Проверьте рамку белого холста. "
+                                  "RGB-палитра открывается и закрывается цветным кругом. "
+                                  "После сохранения выполните TEST DRAW." if popup else
+                                  "Профиль загружен. Проверьте рамки холста и персонажа. "
                                   "Если персонаж сместился, выделите его заново двумя точками. "
                                   "После сохранения выполните TEST DRAW.")
         self.refresh()
@@ -174,7 +182,8 @@ class CalibrationDialog(QDialog):
         return deepcopy((self.canvas, self.character, self.tool, self.indicator,
                          self.swatches, self.brushes, self.anchors, self.mode, self.first, self.pending_width,
                          self.color_wheel, self.color_tab, self.size_tab, self.wheel_points, self.name.text(),
-                         self.brush_slider, self.forbidden, self.adapter, self.opacity_slider, self.color_tolerance))
+                         self.brush_slider, self.forbidden, self.adapter, self.opacity_slider, self.color_tolerance,
+                         self.popup_controls))
 
     def undo(self):
         if not self.history:
@@ -182,7 +191,8 @@ class CalibrationDialog(QDialog):
         (self.canvas, self.character, self.tool, self.indicator,
          self.swatches, self.brushes, self.anchors, self.mode, self.first, self.pending_width,
          self.color_wheel, self.color_tab, self.size_tab, self.wheel_points, name,
-         self.brush_slider, self.forbidden, self.adapter, self.opacity_slider, self.color_tolerance) = self.history.pop()
+         self.brush_slider, self.forbidden, self.adapter, self.opacity_slider, self.color_tolerance,
+         self.popup_controls) = self.history.pop()
         self.name.setText(name)
         self.instructions.setText("Последняя точка отменена. " + (
             "Отметьте противоположный угол." if self.first else "Выберите шаг и отметьте точку заново."))
@@ -287,11 +297,11 @@ class CalibrationDialog(QDialog):
             self.picture.debug_rects.append(self.color_wheel.square)
         self.picture.update()
         self.summary.setText(f"1. Холст: {'готов' if self.canvas else 'выделите'} · "
-                             f"2. Цвет: {'HSV' if self.color_wheel else str(len(self.swatches))} · "
+                             f"2. Цвет: {'RGB-палитра' if self.popup_controls else 'HSV' if self.color_wheel else str(len(self.swatches))} · "
                              f"3. Размеров: {len(self.brushes)}")
         self.undo_button.setEnabled(bool(self.history))
         self.slider_range_button.setEnabled(self.brush_slider is not None)
-        self.save_button.setEnabled(bool(self.canvas and (self.swatches or self.color_wheel) and self.brushes))
+        self.save_button.setEnabled(bool(self.canvas and (self.swatches or self.color_wheel or self.popup_controls) and self.brushes))
 
     def save(self):
         if not self.canvas:
@@ -303,7 +313,8 @@ class CalibrationDialog(QDialog):
                               self.tool, self.character, color_indicator=self.indicator,
                               color_wheel=self.color_wheel, color_tab=self.color_tab, size_tab=self.size_tab,
                               brush_slider=self.brush_slider, forbidden=self.forbidden, adapter=self.adapter,
-                              opacity_slider=self.opacity_slider, color_tolerance=self.color_tolerance)
+                              opacity_slider=self.opacity_slider, color_tolerance=self.color_tolerance,
+                              popup_controls=self.popup_controls)
         profile.anchors = self.anchors
         try:
             profile.validate()

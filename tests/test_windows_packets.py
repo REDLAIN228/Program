@@ -59,3 +59,35 @@ def test_positioned_press_reports_rejected_input(monkeypatch):
     backend._lock = threading.Lock()
     with pytest.raises(SafetyError, match="SendInput"):
         backend.down_at(100, 200)
+
+
+def test_numeric_keyboard_packets_select_replace_and_commit_without_clipboard(monkeypatch):
+    import app.windows as native
+    packets, guards, waits = [], [], []
+    def send(count, pointer, size):
+        event = ctypes.cast(pointer, ctypes.POINTER(INPUT)).contents
+        assert event.type == 1
+        packets.append((event.ki.wVk, event.ki.dwFlags))
+        return 1
+    monkeypatch.setattr(native, "user32", SimpleNamespace(SendInput=send), raising=False)
+    backend = native.Win32Backend.__new__(native.Win32Backend)
+    backend._lock = threading.Lock()
+    backend.replace_number(32, lambda: guards.append(True), waits.append)
+    assert packets == [(0x11, 0), (0x41, 0), (0x41, 2), (0x11, 2),
+                       (ord("3"), 0), (ord("3"), 2), (ord("2"), 0), (ord("2"), 2),
+                       (0x0D, 0), (0x0D, 2)]
+    assert len(guards) == 5 and len(waits) == 5
+
+
+def test_numeric_keyboard_releases_control_when_stop_interrupts_input(monkeypatch):
+    import app.windows as native
+    packets = []
+    backend = native.Win32Backend.__new__(native.Win32Backend)
+    backend._key = lambda vk, up=False: packets.append((vk, up))
+    def stop(seconds):
+        raise InterruptedError("F9")
+    with pytest.raises(InterruptedError, match="F9"):
+        backend.replace_number(255, lambda: None, stop)
+    assert packets == [(0x11, False), (0x11, True)]
+    with pytest.raises(ValueError):
+        backend.replace_number("255\n", lambda: None, lambda _: None)

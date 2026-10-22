@@ -70,6 +70,10 @@ class DrawingExecutor:
         self._latency = 1.
         self._control_log = []
         self._observed_color = None
+        self._popup = None
+        if profile.popup_controls:
+            from app.popup_controls import PopupController
+            self._popup = PopupController(self)
 
     def _release(self):
         self.backend.up()
@@ -195,8 +199,7 @@ class DrawingExecutor:
 
     def _travel(self, x: int, y: int, plan: Plan) -> None:
         """Move with the button released; drawing samples still use _move directly."""
-        slider = self.profile.brush_slider
-        if not slider or not slider.readout:
+        if not self.profile.feedback:
             self._move(x, y)
             return
         if self._released_at is None:
@@ -240,7 +243,7 @@ class DrawingExecutor:
         x, y = point
         self._travel(self._session.client.x + x, self._session.client.y + y, plan)
         self._guard()
-        feedback = self.profile.brush_slider is not None and self.profile.brush_slider.readout is not None
+        feedback = self.profile.feedback
         if feedback:
             self._arrive((self._session.client.x+x, self._session.client.y+y), plan)
         self._guard()
@@ -419,6 +422,9 @@ class DrawingExecutor:
         self._wait(plan.timing.control_settle if feedback else plan.timing.settle)
 
     def _set_brush(self, width, plan):
+        if self._popup:
+            self._popup.set_width(width, plan)
+            return
         slider = self.profile.brush_slider
         if not slider:
             if self.profile.size_tab:
@@ -491,10 +497,11 @@ class DrawingExecutor:
 
     def check_brushes(self, plan, widths, progress=lambda *_: None):
         """Exercise only free brush controls; never move onto the drawing canvas."""
-        if not widths or not self.profile.brush_slider or not self.profile.brush_slider.readout:
+        if not widths or not self.profile.feedback:
             raise SafetyError("Для проверки нужны размеры и область числа бесплатного ползунка")
-        for width in widths:
-            self.profile.brush_slider.point(width)
+        if self.profile.brush_slider:
+            for width in widths:
+                self.profile.brush_slider.point(width)
         self._session = self._guard()
         self._deadline = time.monotonic()+120
         try:
@@ -533,7 +540,7 @@ class DrawingExecutor:
         colors = {s.rgb for s in self.profile.swatches}
         widths = {b.pixels for b in self.profile.brushes}
         for stroke in plan.strokes:
-            if ((not self.profile.color_wheel and stroke.color not in colors)
+            if ((not self.profile.dynamic_color and stroke.color not in colors)
                     or len(stroke.color) != 3 or any(not 0 <= c <= 255 for c in stroke.color)
                     or stroke.width not in widths or not math.isfinite(stroke.opacity)
                     or not .01 <= stroke.opacity <= 1
@@ -831,37 +838,11 @@ class DrawingExecutor:
 
     def _execute(self, stroke: Stroke, plan: Plan, started: float,
                  time_limit: float | None) -> None:
-        color_changed = self._color != stroke.color
-        if not self._tool_selected and self.profile.brush_tool:
-            self._click(self.profile.brush_tool, plan)
-            self._tool_selected = True
-        if color_changed:
-            self._open_controls(plan)
-            # Some game indicators fade with brush opacity. Confirm each new
-            # hue at 100%, then restore the requested drawing opacity.
-            if self.profile.opacity_slider and self._opacity != 100:
-                self._set_opacity(100, plan)
-            if (self._color is not None or not self.profile.color_indicator
-                    or not self._color_matches(stroke.color, plan)):
-                self._select_color(stroke.color, plan)
-        feedback = self.profile.brush_slider and self.profile.brush_slider.readout
-        controls_changed = color_changed or self._width != stroke.width
-        if self._width != stroke.width or (feedback and color_changed):
-            self._set_brush(stroke.width, plan)
-        if controls_changed and self._opacity in (None, 100) and not self._color_matches(stroke.color, plan):
-            self._latency = min(3., self._latency+.5)
-            self._last_hue = None
-            self._select_color(stroke.color, plan, recover=True)
-            if feedback:
-                self._set_brush(stroke.width, plan)
-            if not self._color_matches(stroke.color, plan):
-                self._control_failure("color", stroke.color, self._observed_color,
-                                      f"Индикатор цвета не совпал: нужен {stroke.color}, в игре {self._observed_color}. "
-                                      "Рисование остановлено до штриха. Проверьте Цвет → Колесо и профиль.")
-        self._color = stroke.color
-        percent = round(stroke.opacity*100)
-        if self.profile.opacity_slider and self._opacity != percent:
-            self._set_opacity(percent, plan)
+        if self._popup:
+            self._popup.prepare(stroke.color, stroke.width, plan)
+        else:
+            self._prepare_controls(stroke, plan)
+        feedback = self.profile.feedback
         assert self._session
         canvas = plan.drawing_area(self.profile.canvas)
         local_points = [canvas.map(p, stroke.width / 2 + 1) for p in stroke.points]
@@ -897,6 +878,39 @@ class DrawingExecutor:
                 self._pen_started = None
         if feedback:
             self._wait(plan.timing.pen_release*self._latency)
+
+    def _prepare_controls(self, stroke, plan):
+        color_changed = self._color != stroke.color
+        if not self._tool_selected and self.profile.brush_tool:
+            self._click(self.profile.brush_tool, plan)
+            self._tool_selected = True
+        if color_changed:
+            self._open_controls(plan)
+            # Some game indicators fade with brush opacity. Confirm each new
+            # hue at 100%, then restore the requested drawing opacity.
+            if self.profile.opacity_slider and self._opacity != 100:
+                self._set_opacity(100, plan)
+            if (self._color is not None or not self.profile.color_indicator
+                    or not self._color_matches(stroke.color, plan)):
+                self._select_color(stroke.color, plan)
+        feedback = self.profile.brush_slider and self.profile.brush_slider.readout
+        controls_changed = color_changed or self._width != stroke.width
+        if self._width != stroke.width or (feedback and color_changed):
+            self._set_brush(stroke.width, plan)
+        if controls_changed and self._opacity in (None, 100) and not self._color_matches(stroke.color, plan):
+            self._latency = min(3., self._latency+.5)
+            self._last_hue = None
+            self._select_color(stroke.color, plan, recover=True)
+            if feedback:
+                self._set_brush(stroke.width, plan)
+            if not self._color_matches(stroke.color, plan):
+                self._control_failure("color", stroke.color, self._observed_color,
+                                      f"Индикатор цвета не совпал: нужен {stroke.color}, в игре {self._observed_color}. "
+                                      "Рисование остановлено до штриха. Проверьте Цвет → Колесо и профиль.")
+        self._color = stroke.color
+        percent = round(stroke.opacity*100)
+        if self.profile.opacity_slider and self._opacity != percent:
+            self._set_opacity(percent, plan)
 
     def _check_anchor(self, anchor) -> None:
         self._guard()

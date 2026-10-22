@@ -2,13 +2,15 @@
 from dataclasses import replace
 
 from app.automation import WindowState
-from app.models import Brush, BrushSlider, Calibration, ColorWheel, Rect
+from app.models import Brush, BrushSlider, Calibration, ColorWheel, PopupControls, Rect, Swatch
 
 
 PAID_AREAS = [Rect(654, 87, 111, 27), Rect(1165, 690, 201, 78)]
 PROFILE_NAME = "Roblox · персонаж слева · 1366×768"
 FREE_SLIDER_ADAPTER = "roblox-free-slider-v5"
 LEGACY_ADAPTERS = {"roblox-free-slider-v1", "roblox-free-slider-v2", "roblox-free-slider-v3", "roblox-free-slider-v4"}
+POPUP_PROFILE_NAME = "Roblox · новый плейс · RGB-палитра · 1366×768"
+POPUP_ADAPTER = "roblox-popup-rgb-v1"
 
 
 def opacity_slider():
@@ -93,7 +95,31 @@ def screenshot_profile(state: WindowState) -> Calibration:
 
 
 def selection_clicks(profile: Calibration) -> tuple[int, int]:
+    if profile.popup_controls:
+        return 5, 12  # Toggle twice + three RGB inputs; include feedback waits.
     wheel = profile.color_wheel
     color = 2 if wheel else 1  # Hue + square; tab/mode/brightness are session setup.
     return color, ((12 if profile.brush_slider.readout else 2)
                                                if profile.brush_slider else 1 + bool(profile.size_tab))
+
+
+def popup_screenshot_profile(state: WindowState) -> Calibration:
+    if (state.client.width, state.client.height) != (1366, 768):
+        raise ValueError("Новый профиль рассчитан на игровую область 1366×768, как на скриншотах. "
+                         "Сбросьте масштаб холста; координаты не масштабируются автоматически.")
+    if "roblox" not in state.process.casefold():
+        raise ValueError("Для нового игрового профиля выберите окно Roblox")
+    profile = Calibration(
+        POPUP_PROFILE_NAME, state.window_class, state.process, (1366, 768), state.dpi,
+        Rect(414, 55, 534, 530), [], [Brush(n, (652, 692)) for n in (1, 2, 4, 8, 16, 32)],
+        brush_tool=(608, 631), color_tolerance=3, adapter=POPUP_ADAPTER,
+        popup_controls=PopupControls(
+            (528, 632), Rect(546, 230, 338, 403),
+            ((624, 564), (726, 564), (826, 564)), (566, 516),
+            (Swatch((20, 20, 30), (582, 628)), Swatch((20, 20, 30), (800, 245))),
+            (652, 692), Rect(600, 676, 105, 32)),
+        # Layers, shapes, resolution, save, undo, trash and other tools are manual.
+        forbidden=[Rect(974, 242, 230, 300), Rect(282, 313, 105, 128),
+                   Rect(655, 601, 300, 60), Rect(773, 662, 182, 60), Rect(410, 601, 76, 60)])
+    profile.validate()
+    return profile

@@ -31,6 +31,12 @@ def read_size(image):
     return _read_mask(mask, 1, 256)
 
 
+def read_numeric_size(image):
+    """Black digits on the white brush-size text box of the popup preset."""
+    a = np.asarray(image.convert("RGB"), dtype=np.int16)
+    return _read_mask(np.max(a, axis=2) < 90, 1, 999)
+
+
 def read_percent(image):
     """Pink opacity label with a required trailing percent sign; never guess."""
     a = np.asarray(image.convert("RGB"), dtype=np.int16)

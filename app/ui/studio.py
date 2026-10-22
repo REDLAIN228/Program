@@ -176,6 +176,8 @@ def build_studio(p):
     p.priority_view.region_selected.connect(p.add_priority_region)
     f = forms[3]
     f.addRow("Профиль", p.profile_combo)
+    p.popup_profile = button("НОВЫЙ ПЛЕЙС · RGB · 1366×768", p.install_popup_profile)
+    f.addRow(p.popup_profile)
     p.ready_profile = button("ГОТОВЫЙ ПРОФИЛЬ · 1366×768", p.install_game_profile)
     f.addRow(p.ready_profile)
     pair = QHBoxLayout()
@@ -258,7 +260,8 @@ def build_studio(p):
     old.deleteLater()
     p._advanced_controls = [p.engine, p.vector_accuracy, p.intelligence, p.priority_mode, p.detect_faces, p.brush_policy,
                             p.region_score, p.select_region, p.compare_button, p.simulate_button,
-                            p.custom_time, p.safety_buffer, p.smart_finish, p.brush_opacity, p.game_delay, p.ready_profile]
+                            p.custom_time, p.safety_buffer, p.smart_finish, p.brush_opacity, p.game_delay,
+                            p.ready_profile, p.popup_profile]
     def navigate(index):
         page = {0: 0, 1: 0, 2: 0, 3: 1, 4: 2, 5: 3, 7: 4}.get(index)
         if page is None:

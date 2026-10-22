@@ -89,6 +89,17 @@ class BrushSlider:
         return tuple(round(a+t*(b-a)) for a, b in zip(self.start, self.end))
 
 
+@dataclass(frozen=True)
+class PopupControls:
+    toggle: tuple[int, int]
+    bounds: Rect
+    rgb_fields: tuple[tuple[int, int], ...]
+    indicator: tuple[int, int]
+    visible_anchors: tuple[Swatch, ...]
+    brush_field: tuple[int, int]
+    brush_readout: Rect
+
+
 @dataclass
 class Calibration:
     name: str
@@ -114,6 +125,15 @@ class Calibration:
     forbidden: list[Rect] = field(default_factory=list)
     adapter: str | None = None
     opacity_slider: BrushSlider | None = None  # Percent opacity, not transparency.
+    popup_controls: PopupControls | None = None
+
+    @property
+    def dynamic_color(self) -> bool:
+        return self.color_wheel is not None or self.popup_controls is not None
+
+    @property
+    def feedback(self) -> bool:
+        return self.popup_controls is not None or bool(self.brush_slider and self.brush_slider.readout)
 
     def validate(self) -> None:
         w, h = self.client_size
@@ -121,7 +141,7 @@ class Calibration:
             raise ValueError("Некорректный размер окна или DPI")
         if self.canvas.width < 16 or self.canvas.height < 16:
             raise ValueError("Выделите холст размером хотя бы 16×16")
-        if (not self.swatches and not self.color_wheel) or not self.brushes:
+        if (not self.swatches and not self.dynamic_color) or not self.brushes:
             raise ValueError("Нужен хотя бы один цвет и один размер кисти")
         for rect in [self.canvas, self.character]:
             if rect and (rect.width < 1 or rect.height < 1 or rect.x < 0 or rect.y < 0
@@ -180,6 +200,28 @@ class Calibration:
             raise ValueError("Некорректная ширина кисти")
         if any(len(s.rgb) != 3 or any(not 0 <= c <= 255 for c in s.rgb) for s in self.swatches):
             raise ValueError("Некорректный RGB")
+        if self.popup_controls:
+            popup = self.popup_controls
+            bounds = Rect(0, 0, w, h)
+            if self.color_wheel or self.brush_slider or self.opacity_slider:
+                raise ValueError("Всплывающая RGB-палитра требует отдельного числового управления")
+            if len(popup.rgb_fields) != 3 or len(popup.visible_anchors) < 2:
+                raise ValueError("Для RGB-палитры нужны три поля и две контрольные точки")
+            for rect in (popup.bounds, popup.brush_readout):
+                if (rect.width < 5 or rect.height < 5 or not bounds.contains(rect.x, rect.y)
+                        or not bounds.contains(rect.x+rect.width-1, rect.y+rect.height-1)):
+                    raise ValueError("Область RGB-палитры или размера вне окна")
+            popup_points = [*popup.rgb_fields, popup.indicator, *(s.point for s in popup.visible_anchors)]
+            if any(not popup.bounds.contains(*point) for point in popup_points):
+                raise ValueError("Контрол RGB находится за пределами всплывающей палитры")
+            if any(not bounds.contains(*point) or self.canvas.contains(*point)
+                   or popup.bounds.contains(*point) for point in [popup.toggle, popup.brush_field]):
+                raise ValueError("Переключатель палитры и размер должны быть вне холста и всплывающего окна")
+            if not any(not self.canvas.contains(*s.point) for s in popup.visible_anchors):
+                raise ValueError("Нужна контрольная точка палитры вне рисунка")
+            if any(r.contains(*point) for r in self.forbidden
+                   for point in [*popup_points, popup.toggle, popup.brush_field]):
+                raise ValueError("Контрол всплывающей палитры попал в исключённую область")
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -221,6 +263,13 @@ class Calibration:
                                        tuple(d["opacity_slider"]["decrease"]) if d["opacity_slider"].get("decrease") else None,
                                        tuple(d["opacity_slider"]["increase"]) if d["opacity_slider"].get("increase") else None)
                             if d.get("opacity_slider") else None),
+            popup_controls=(PopupControls(
+                tuple(d["popup_controls"]["toggle"]), Rect(**d["popup_controls"]["bounds"]),
+                tuple(tuple(p) for p in d["popup_controls"]["rgb_fields"]),
+                tuple(d["popup_controls"]["indicator"]),
+                tuple(Swatch(tuple(s["rgb"]), tuple(s["point"])) for s in d["popup_controls"]["visible_anchors"]),
+                tuple(d["popup_controls"]["brush_field"]), Rect(**d["popup_controls"]["brush_readout"]))
+                if d.get("popup_controls") else None),
         )
         p.validate()
         return p
