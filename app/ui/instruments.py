@@ -14,8 +14,8 @@ class HoverAnimation(QObject):
         button.installEventFilter(self)
 
     def paint(self, value):
-        base = QColor("#E73558" if self.button.objectName() == "primary" else "#1A1F2B")
-        target = QColor("#F04B6C" if self.button.objectName() == "primary" else "#2A3244")
+        base = QColor("#a93643" if self.button.objectName() == "primary" else "#202023")
+        target = QColor("#bc414f" if self.button.objectName() == "primary" else "#2b2b30")
         color = QColor(*(round(a+(b-a)*float(value)) for a, b in zip(base.getRgb()[:3], target.getRgb()[:3])))
         self.button.setStyleSheet(f"QPushButton:enabled:!checked {{ background-color: {color.name()}; }}")
 

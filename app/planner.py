@@ -42,6 +42,9 @@ class PlanOptions:
     measured_runs: int = 0
     opacity: int = 100
     game_delay: float = .25
+    human_mode: str = "BALANCED"
+    canvas_fill: dict | None = None
+    input_calibration: dict | None = None
 
 
 def rdp(points: np.ndarray, epsilon: float) -> np.ndarray:
@@ -301,13 +304,16 @@ def _build_legacy(image: Image.Image, options: PlanOptions, progress: Progress =
     return plan, prepared
 
 
-def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = lambda *_: None,
+def _build_selected(image: Image.Image, options: PlanOptions, progress: Progress = lambda *_: None,
                cancel: threading.Event | None = None) -> tuple[Plan, Image.Image]:
     """Preserve the public planning API and the explicit legacy comparison path."""
     if type(options.opacity) is not int or not 1 <= options.opacity <= 100:
         raise ValueError("Непрозрачность должна быть целым числом 1–100%")
     if not math.isfinite(options.game_delay) or not .06 <= options.game_delay <= 1:
         raise ValueError("Задержка игры должна быть 60–1000 мс")
+    if options.engine == "Human 3.0":
+        from app.human import build_human_plan
+        return build_human_plan(image, options, progress, cancel)
     if options.engine == "Legacy":
         return _build_legacy(image, options, progress, cancel)
     if options.engine != "Vector 2.0":
@@ -382,4 +388,25 @@ def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = la
     plan._reference_strokes = old_strokes
     plan._priority_scores = scores
     progress(1., "Vector Engine 2.0: план готов")
+    return plan, processed
+
+
+def build_plan(image: Image.Image, options: PlanOptions, progress: Progress = lambda *_: None,
+               cancel: threading.Event | None = None) -> tuple[Plan, Image.Image]:
+    if options.engine == "Human 3.0" or not options.canvas_fill:
+        plan, processed = _build_selected(image, options, progress, cancel)
+        if options.input_calibration:
+            plan.analysis["input_calibration"] = options.input_calibration
+        return plan, processed
+    from app.canvas_fill import apply_canvas_fill
+    from app.priority import project_regions
+    original_hash = hashlib.sha256(image.convert("RGB").tobytes()+str(image.size).encode()).hexdigest()
+    filled, mask, info = apply_canvas_fill(image, options.canvas_size, options.canvas_fill, options.crop)
+    mapped = project_regions(options.priority_regions, image.size, options.canvas_size, options.crop)
+    plan, processed = _build_selected(filled, replace(options, crop=False, priority_regions=mapped), progress, cancel)
+    plan.source_hash = original_hash
+    plan.analysis["fill"] = info
+    plan._padding_mask = mask
+    if options.input_calibration:
+        plan.analysis["input_calibration"] = options.input_calibration
     return plan, processed

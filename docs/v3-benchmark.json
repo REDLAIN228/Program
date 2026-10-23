@@ -1,0 +1,628 @@
+{
+  "scope": "Actual app-local Qt mouse-event delivery; Linux CPU; no Roblox/SendInput validation",
+  "timing": "event=.0001, settle=.0001, pps=1e6, sample=40; identical to v2 baseline, not a user speed preset",
+  "before_commit": "ee7c55d1062efd412c3767b2eec2194e68c1e1db",
+  "cases": {
+    "portrait": {
+      "Legacy": {
+        "strokes": 80,
+        "points": 1792,
+        "draw_length": 4778.100393151288,
+        "travel_length": 1972.3298214673996,
+        "planning_seconds": 0.022879703989019617,
+        "estimated_Normal_seconds": 40.93655050236,
+        "preview_accuracy": {
+          "pixel_agreement": 0.9560546875,
+          "interior_pixel_agreement": 0.95,
+          "important_agreement": 0.6116504854368932,
+          "edge_distance_mean": 0.8887773156166077,
+          "edge_distance_max": 1.3693000078201294
+        },
+        "local_execution_seconds": 7.015875340992352,
+        "local_accuracy": {
+          "pixel_agreement": 0.9443359375,
+          "interior_pixel_agreement": 0.9366666666666666,
+          "important_agreement": 0.6019417475728155,
+          "edge_distance_mean": 0.9444094896316528,
+          "edge_distance_max": 3.819999933242798
+        },
+        "actual_input": {
+          "mouse_moves": 1810,
+          "mouse_presses": 98,
+          "key_presses": 0,
+          "wait_seconds": 1.7895533903792966,
+          "wait_calls": 1849,
+          "travel_pixels": 6885.686658920762,
+          "drawing_pixels": 4494.6478482618895,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 7,
+          "brush_requests": 11
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1792
+      },
+      "Vector 2.0": {
+        "strokes": 132,
+        "points": 2311,
+        "draw_length": 5359.975680300751,
+        "travel_length": 1721.2705310583115,
+        "planning_seconds": 0.09830579799017869,
+        "estimated_Normal_seconds": 50.23605781371773,
+        "preview_accuracy": {
+          "pixel_agreement": 0.955322265625,
+          "interior_pixel_agreement": 0.9491666666666667,
+          "important_agreement": 0.6051779935275081,
+          "edge_distance_mean": 0.8993123769760132,
+          "edge_distance_max": 1.3693000078201294
+        },
+        "local_execution_seconds": 7.486945181997726,
+        "local_accuracy": {
+          "pixel_agreement": 0.95147705078125,
+          "interior_pixel_agreement": 0.9447916666666667,
+          "important_agreement": 0.6467098166127292,
+          "edge_distance_mean": 0.9806913733482361,
+          "edge_distance_max": 3.819999933242798
+        },
+        "actual_input": {
+          "mouse_moves": 2322,
+          "mouse_presses": 143,
+          "key_presses": 0,
+          "wait_seconds": 1.0044333258701954,
+          "wait_calls": 2345,
+          "travel_pixels": 5867.977095559976,
+          "drawing_pixels": 5126.004012535632,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 7,
+          "brush_requests": 5
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 2311
+      },
+      "Human 3.0 FAST": {
+        "strokes": 15,
+        "points": 804,
+        "draw_length": 3322.2604869910324,
+        "travel_length": 459.88114643096924,
+        "planning_seconds": 0.038242470007389784,
+        "estimated_Normal_seconds": 21.17771062226632,
+        "preview_accuracy": {
+          "pixel_agreement": 0.9776611328125,
+          "interior_pixel_agreement": 0.9745833333333334,
+          "important_agreement": 0.8327939590075513,
+          "edge_distance_mean": 0.44899579882621765,
+          "edge_distance_max": 10.378600120544434
+        },
+        "local_execution_seconds": 2.6216509680089075,
+        "local_accuracy": {
+          "pixel_agreement": 0.9510498046875,
+          "interior_pixel_agreement": 0.9443055555555555,
+          "important_agreement": 0.622437971952535,
+          "edge_distance_mean": 0.7037408947944641,
+          "edge_distance_max": 10.378600120544434
+        },
+        "actual_input": {
+          "mouse_moves": 809,
+          "mouse_presses": 20,
+          "key_presses": 0,
+          "wait_seconds": 0.3930369607114699,
+          "wait_calls": 819,
+          "travel_pixels": 1514.787656500286,
+          "drawing_pixels": 3067.0801765146894,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 2,
+          "brush_requests": 4
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 804
+      },
+      "Human 3.0 BALANCED": {
+        "strokes": 31,
+        "points": 1083,
+        "draw_length": 3551.434146340802,
+        "travel_length": 1205.0531377792358,
+        "planning_seconds": 0.05035255098482594,
+        "estimated_Normal_seconds": 25.92104363143545,
+        "preview_accuracy": {
+          "pixel_agreement": 0.97943115234375,
+          "interior_pixel_agreement": 0.9765972222222222,
+          "important_agreement": 0.8182308522114348,
+          "edge_distance_mean": 0.2876206040382385,
+          "edge_distance_max": 0.9549999833106995
+        },
+        "local_execution_seconds": 4.230530842003645,
+        "local_accuracy": {
+          "pixel_agreement": 0.95404052734375,
+          "interior_pixel_agreement": 0.9477083333333334,
+          "important_agreement": 0.6078748651564185,
+          "edge_distance_mean": 0.5930066704750061,
+          "edge_distance_max": 10.505000114440918
+        },
+        "actual_input": {
+          "mouse_moves": 1090,
+          "mouse_presses": 38,
+          "key_presses": 0,
+          "wait_seconds": 1.162514927535085,
+          "wait_calls": 1108,
+          "travel_pixels": 2988.1759365207345,
+          "drawing_pixels": 3297.2669119856296,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 3,
+          "brush_requests": 4
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1083
+      },
+      "Human 3.0 MASTERPIECE": {
+        "strokes": 49,
+        "points": 1568,
+        "draw_length": 3754.1055039570333,
+        "travel_length": 2090.210352897644,
+        "planning_seconds": 0.07467908901162446,
+        "estimated_Normal_seconds": 32.9558125883895,
+        "preview_accuracy": {
+          "pixel_agreement": 0.97808837890625,
+          "interior_pixel_agreement": 0.9750694444444444,
+          "important_agreement": 0.8063646170442287,
+          "edge_distance_mean": 0.33381080627441406,
+          "edge_distance_max": 0.9549999833106995
+        },
+        "local_execution_seconds": 5.003859900985844,
+        "local_accuracy": {
+          "pixel_agreement": 0.95379638671875,
+          "interior_pixel_agreement": 0.9474305555555556,
+          "important_agreement": 0.6116504854368932,
+          "edge_distance_mean": 0.6817690134048462,
+          "edge_distance_max": 10.505000114440918
+        },
+        "actual_input": {
+          "mouse_moves": 1576,
+          "mouse_presses": 57,
+          "key_presses": 0,
+          "wait_seconds": 0.6781475376628805,
+          "wait_calls": 1592,
+          "travel_pixels": 4675.6243089244035,
+          "drawing_pixels": 3501.9170652198354,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 5,
+          "brush_requests": 4
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1568
+      }
+    },
+    "landscape": {
+      "Legacy": {
+        "strokes": 113,
+        "points": 1372,
+        "draw_length": 6563.989008119489,
+        "travel_length": 4985.600572228432,
+        "planning_seconds": 0.027663053013384342,
+        "estimated_Normal_seconds": 48.697119288152685,
+        "preview_accuracy": {
+          "pixel_agreement": 0.93817138671875,
+          "interior_pixel_agreement": 0.9716666666666667,
+          "important_agreement": 0.6620959843290891,
+          "edge_distance_mean": 8.521223068237305,
+          "edge_distance_max": 48.051918029785156
+        },
+        "local_execution_seconds": 7.3982398780062795,
+        "local_accuracy": {
+          "pixel_agreement": 0.9429931640625,
+          "interior_pixel_agreement": 0.9726388888888889,
+          "important_agreement": 0.6219392752203722,
+          "edge_distance_mean": 4.85306978225708,
+          "edge_distance_max": 49.29481887817383
+        },
+        "actual_input": {
+          "mouse_moves": 1455,
+          "mouse_presses": 149,
+          "key_presses": 0,
+          "wait_seconds": 2.4533452133182436,
+          "wait_calls": 1526,
+          "travel_pixels": 17342.610881064225,
+          "drawing_pixels": 6108.34458282779,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 18,
+          "brush_requests": 18
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1419
+      },
+      "Vector 2.0": {
+        "strokes": 141,
+        "points": 1602,
+        "draw_length": 8231.339681314877,
+        "travel_length": 4297.719292640686,
+        "planning_seconds": 0.07714944498729892,
+        "estimated_Normal_seconds": 59.23182292612459,
+        "preview_accuracy": {
+          "pixel_agreement": 0.93768310546875,
+          "interior_pixel_agreement": 0.97125,
+          "important_agreement": 0.6562193927522038,
+          "edge_distance_mean": 8.517315864562988,
+          "edge_distance_max": 48.051918029785156
+        },
+        "local_execution_seconds": 8.504842097026994,
+        "local_accuracy": {
+          "pixel_agreement": 0.9482421875,
+          "interior_pixel_agreement": 0.9785416666666666,
+          "important_agreement": 0.6699314397649363,
+          "edge_distance_mean": 4.916581153869629,
+          "edge_distance_max": 49.29481887817383
+        },
+        "actual_input": {
+          "mouse_moves": 1699,
+          "mouse_presses": 179,
+          "key_presses": 0,
+          "wait_seconds": 2.7355300079507288,
+          "wait_calls": 1777,
+          "travel_pixels": 21101.504296259754,
+          "drawing_pixels": 7750.638974595922,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 24,
+          "brush_requests": 14
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1661
+      },
+      "Human 3.0 FAST": {
+        "strokes": 21,
+        "points": 588,
+        "draw_length": 4185.970591289268,
+        "travel_length": 976.3358902931213,
+        "planning_seconds": 0.02753899700473994,
+        "estimated_Normal_seconds": 24.896440199980734,
+        "preview_accuracy": {
+          "pixel_agreement": 0.94647216796875,
+          "interior_pixel_agreement": 0.9775694444444445,
+          "important_agreement": 0.7561214495592556,
+          "edge_distance_mean": 8.250471115112305,
+          "edge_distance_max": 48.051918029785156
+        },
+        "local_execution_seconds": 3.5682328089897055,
+        "local_accuracy": {
+          "pixel_agreement": 0.92333984375,
+          "interior_pixel_agreement": 0.9675,
+          "important_agreement": 0.6376101860920667,
+          "edge_distance_mean": 8.163352966308594,
+          "edge_distance_max": 48.88051986694336
+        },
+        "actual_input": {
+          "mouse_moves": 636,
+          "mouse_presses": 36,
+          "key_presses": 0,
+          "wait_seconds": 1.4917736853531096,
+          "wait_calls": 670,
+          "travel_pixels": 5656.527167556902,
+          "drawing_pixels": 3810.743976999719,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 5,
+          "brush_requests": 10
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 621
+      },
+      "Human 3.0 BALANCED": {
+        "strokes": 35,
+        "points": 766,
+        "draw_length": 4750.705048337378,
+        "travel_length": 1529.5697894096375,
+        "planning_seconds": 0.0350935919850599,
+        "estimated_Normal_seconds": 30.10304533954223,
+        "preview_accuracy": {
+          "pixel_agreement": 0.95648193359375,
+          "interior_pixel_agreement": 0.9888194444444445,
+          "important_agreement": 0.8295788442703232,
+          "edge_distance_mean": 8.072049140930176,
+          "edge_distance_max": 48.051918029785156
+        },
+        "local_execution_seconds": 4.325602048978908,
+        "local_accuracy": {
+          "pixel_agreement": 0.93487548828125,
+          "interior_pixel_agreement": 0.9808333333333333,
+          "important_agreement": 0.702252693437806,
+          "edge_distance_mean": 7.959720611572266,
+          "edge_distance_max": 48.88051986694336
+        },
+        "actual_input": {
+          "mouse_moves": 820,
+          "mouse_presses": 54,
+          "key_presses": 0,
+          "wait_seconds": 1.6734811979404185,
+          "wait_calls": 861,
+          "travel_pixels": 8040.363131652683,
+          "drawing_pixels": 4351.965107985274,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 8,
+          "brush_requests": 11
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 801
+      },
+      "Human 3.0 MASTERPIECE": {
+        "strokes": 69,
+        "points": 1003,
+        "draw_length": 5184.092453577777,
+        "travel_length": 2648.722147464752,
+        "planning_seconds": 0.048392836994025856,
+        "estimated_Normal_seconds": 36.080218135127176,
+        "preview_accuracy": {
+          "pixel_agreement": 0.956298828125,
+          "interior_pixel_agreement": 0.9885416666666667,
+          "important_agreement": 0.8266405484818805,
+          "edge_distance_mean": 8.0601167678833,
+          "edge_distance_max": 48.051918029785156
+        },
+        "local_execution_seconds": 4.700338485999964,
+        "local_accuracy": {
+          "pixel_agreement": 0.93499755859375,
+          "interior_pixel_agreement": 0.9810416666666667,
+          "important_agreement": 0.7061704211557297,
+          "edge_distance_mean": 7.972240447998047,
+          "edge_distance_max": 48.88051986694336
+        },
+        "actual_input": {
+          "mouse_moves": 1060,
+          "mouse_presses": 91,
+          "key_presses": 0,
+          "wait_seconds": 1.2482892412517685,
+          "wait_calls": 1103,
+          "travel_pixels": 10721.087653149601,
+          "drawing_pixels": 4767.662966053794,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 12,
+          "brush_requests": 11
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1038
+      }
+    },
+    "texture_text": {
+      "Legacy": {
+        "strokes": 55,
+        "points": 1789,
+        "draw_length": 4212.377078014716,
+        "travel_length": 2900.0038189888,
+        "planning_seconds": 0.018735230987658724,
+        "estimated_Normal_seconds": 36.29448182190772,
+        "preview_accuracy": {
+          "pixel_agreement": 0.83013916015625,
+          "interior_pixel_agreement": 0.8152777777777778,
+          "important_agreement": 0.5066690699351117,
+          "edge_distance_mean": 1.0559923648834229,
+          "edge_distance_max": 3.6935999393463135
+        },
+        "local_execution_seconds": 6.896393171016825,
+        "local_accuracy": {
+          "pixel_agreement": 0.793212890625,
+          "interior_pixel_agreement": 0.7739583333333333,
+          "important_agreement": 0.5104542177361211,
+          "edge_distance_mean": 1.124780297279358,
+          "edge_distance_max": 2.865000009536743
+        },
+        "actual_input": {
+          "mouse_moves": 1805,
+          "mouse_presses": 71,
+          "key_presses": 0,
+          "wait_seconds": 1.7867838398669846,
+          "wait_calls": 1842,
+          "travel_pixels": 8429.118940431992,
+          "drawing_pixels": 4013.765195822446,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 15,
+          "brush_requests": 1
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 1789
+      },
+      "Vector 2.0": {
+        "strokes": 73,
+        "points": 2132,
+        "draw_length": 4345.896601166479,
+        "travel_length": 2260.8873057365417,
+        "planning_seconds": 0.10682181100128219,
+        "estimated_Normal_seconds": 42.09549010149049,
+        "preview_accuracy": {
+          "pixel_agreement": 0.82257080078125,
+          "interior_pixel_agreement": 0.8069444444444445,
+          "important_agreement": 0.4850396539293439,
+          "edge_distance_mean": 1.0592617988586426,
+          "edge_distance_max": 2.865000009536743
+        },
+        "local_execution_seconds": 8.046174502000213,
+        "local_accuracy": {
+          "pixel_agreement": 0.77886962890625,
+          "interior_pixel_agreement": 0.7580555555555556,
+          "important_agreement": 0.48738284066330206,
+          "edge_distance_mean": 1.1812546253204346,
+          "edge_distance_max": 3.6935999393463135
+        },
+        "actual_input": {
+          "mouse_moves": 2150,
+          "mouse_presses": 91,
+          "key_presses": 0,
+          "wait_seconds": 1.9470071905234363,
+          "wait_calls": 2191,
+          "travel_pixels": 10336.623652034907,
+          "drawing_pixels": 4247.917192045955,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 17,
+          "brush_requests": 1
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 2132
+      },
+      "Human 3.0 FAST": {
+        "strokes": 20,
+        "points": 527,
+        "draw_length": 1860.9445769795377,
+        "travel_length": 1090.7209777832031,
+        "planning_seconds": 0.0370050519995857,
+        "estimated_Normal_seconds": 14.004373626140518,
+        "preview_accuracy": {
+          "pixel_agreement": 0.94293212890625,
+          "interior_pixel_agreement": 0.9398611111111111,
+          "important_agreement": 0.8339942321557318,
+          "edge_distance_mean": 1.0953973531723022,
+          "edge_distance_max": 22.000099182128906
+        },
+        "local_execution_seconds": 2.9766027310106438,
+        "local_accuracy": {
+          "pixel_agreement": 0.8896484375,
+          "interior_pixel_agreement": 0.8806944444444444,
+          "important_agreement": 0.6807858687815429,
+          "edge_distance_mean": 1.1485822200775146,
+          "edge_distance_max": 20.918699264526367
+        },
+        "actual_input": {
+          "mouse_moves": 536,
+          "mouse_presses": 29,
+          "key_presses": 0,
+          "wait_seconds": 1.2197254385682754,
+          "wait_calls": 559,
+          "travel_pixels": 3646.614662008932,
+          "drawing_pixels": 1795.4665838346002,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 8,
+          "brush_requests": 1
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 527
+      },
+      "Human 3.0 BALANCED": {
+        "strokes": 20,
+        "points": 665,
+        "draw_length": 1870.9454809532717,
+        "travel_length": 1090.7209777832031,
+        "planning_seconds": 0.03660963999573141,
+        "estimated_Normal_seconds": 15.548952558995847,
+        "preview_accuracy": {
+          "pixel_agreement": 0.9378662109375,
+          "interior_pixel_agreement": 0.9340972222222222,
+          "important_agreement": 0.8190338860850757,
+          "edge_distance_mean": 1.1408536434173584,
+          "edge_distance_max": 22.000099182128906
+        },
+        "local_execution_seconds": 3.335703887976706,
+        "local_accuracy": {
+          "pixel_agreement": 0.88873291015625,
+          "interior_pixel_agreement": 0.8796527777777777,
+          "important_agreement": 0.6779019466474405,
+          "edge_distance_mean": 1.1577134132385254,
+          "edge_distance_max": 20.918699264526367
+        },
+        "actual_input": {
+          "mouse_moves": 674,
+          "mouse_presses": 29,
+          "key_presses": 0,
+          "wait_seconds": 1.2421971792646218,
+          "wait_calls": 697,
+          "travel_pixels": 3646.614662008932,
+          "drawing_pixels": 1816.0162711970145,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 8,
+          "brush_requests": 1
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 665
+      },
+      "Human 3.0 MASTERPIECE": {
+        "strokes": 20,
+        "points": 968,
+        "draw_length": 1905.9004055276043,
+        "travel_length": 1090.7209777832031,
+        "planning_seconds": 0.05542259299545549,
+        "estimated_Normal_seconds": 18.80901718484083,
+        "preview_accuracy": {
+          "pixel_agreement": 0.93585205078125,
+          "interior_pixel_agreement": 0.9317361111111111,
+          "important_agreement": 0.8130857966834896,
+          "edge_distance_mean": 1.1650993824005127,
+          "edge_distance_max": 22.000099182128906
+        },
+        "local_execution_seconds": 4.116213979024906,
+        "local_accuracy": {
+          "pixel_agreement": 0.89013671875,
+          "interior_pixel_agreement": 0.8811805555555555,
+          "important_agreement": 0.6820475847152127,
+          "edge_distance_mean": 1.1811280250549316,
+          "edge_distance_max": 20.918699264526367
+        },
+        "actual_input": {
+          "mouse_moves": 977,
+          "mouse_presses": 29,
+          "key_presses": 0,
+          "wait_seconds": 1.29259145600372,
+          "wait_calls": 1000,
+          "travel_pixels": 3646.614662008932,
+          "drawing_pixels": 1853.314727431433,
+          "color_changes": 0,
+          "brush_changes": 0,
+          "color_requests": 8,
+          "brush_requests": 1
+        },
+        "outcomes": [
+          "finished"
+        ],
+        "errors": [],
+        "received_segments": 968
+      }
+    }
+  }
+}

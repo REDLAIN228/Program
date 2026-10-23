@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="152" viewBox="0 0 760 152">
+  <title>REDLAIN DRAW ENGINE</title>
+  <g transform="translate(8 8)">
+    <g transform="translate(12 7)">
+      <path fill="#f5f2ed" fill-rule="evenodd" d="M16 12H49C68 12 80 24 80 42C80 56 72 67 57 71L82 98H62L39 73H30V94L16 82ZM30 27V57H48C59 57 65 51 65 42C65 33 59 27 48 27Z"/>
+      <path fill="#f5f2ed" d="M16 43V98L29 85L40 105L50 99L38 80L57 77Z"/>
+      <path fill="#c84550" d="M56 27C81 33 78 59 50 65C65 55 70 41 56 27Z"/>
+    </g>
+    <text x="154" y="70" fill="#f5f2ed" font-family="Segoe UI,DejaVu Sans,sans-serif" font-size="46" font-weight="700" letter-spacing="6">REDLAIN</text>
+    <text x="157" y="101" fill="#c84550" font-family="Segoe UI,DejaVu Sans,sans-serif" font-size="15" letter-spacing="5">DRAW ENGINE · 3.0</text>
+  </g>
+</svg>

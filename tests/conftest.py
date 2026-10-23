@@ -20,9 +20,26 @@ def qapp():
     from PySide6.QtWidgets import QApplication
     application = QApplication.instance() or QApplication([])
     yield application
+    # Close the app-owned disk/network workers before Qt object finalization.
+    import time
+    import gc
+    windows = [w for w in QApplication.topLevelWidgets() if hasattr(w, "close_resources")]
+    for window in windows:
+        window.close_resources()
+    if windows:
+        del window
+    until = time.monotonic()+3
+    while any(window.background_jobs_running() for window in windows) and time.monotonic() < until:
+        application.processEvents()
+        time.sleep(.005)
     # Destroy retained test windows/timers while Qt is still alive, rather
     # than leaving their native objects to Python's interpreter finalization.
+    widget = None
     for widget in QApplication.topLevelWidgets():
         widget.deleteLater()
+    del widget
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     application.processEvents()
+    windows.clear()
+    gc.collect()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

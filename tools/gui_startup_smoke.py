@@ -30,6 +30,7 @@ def main():
                 result[0] = 0
             if window.hotkeys:
                 window.hotkeys.close()
+            window.close_resources()
             window.icon.close()
             window.hide()
             application.quit()

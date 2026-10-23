@@ -69,6 +69,7 @@ def test_ui_import_preview_calibration_test_and_run_end_to_end(qapp, tmp_path, m
     monkeypatch.setattr(MainWindow, "error", lambda self, text: errors.append(text))
     monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
     panel = MainWindow(Store(tmp_path / "data"))
+    panel.engine.setCurrentText("Vector 2.0")  # Keep the existing engine's regression scenario explicit.
     # Explicit app-local backend, including when CI happens to run on Windows.
     panel.native_test = False
     panel.hotkeys_ready = True

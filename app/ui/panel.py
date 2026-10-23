@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import numpy as np
 from PIL import Image
-from PySide6.QtCore import QPoint, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QLabel,
@@ -28,12 +28,14 @@ from app.ui.common import Job, Preview, STYLE, fit_window, LogView, GuiBridge
 from app.ui.floating import FloatingIcon
 from app.ui.test_canvas import QtCanvasBackend, TestCanvas
 from app.ui.intelligence import StudioActions
+from app.ui.v3_actions import V3Actions
 
 
 class DrawJob(Job):
     stats = Signal(int, int, float, float)
     state = Signal(str)
     notice = Signal(str)
+    engine = Signal(object)
 
 
 class DebugOverlay(QWidget):
@@ -57,9 +59,15 @@ class DebugOverlay(QWidget):
             p.drawEllipse(QPoint(x, y), 6, 6)
 
 
-class MainWindow(StudioActions, QMainWindow):
+class MainWindow(V3Actions, StudioActions, QMainWindow):
     hotkey_pause = Signal()
     hotkey_stop = Signal()
+    project_saved_signal = Signal(str, object)
+    project_failed_signal = Signal(str)
+
+    @Slot(object)
+    def dispatch_engine_event(self, event):
+        self.engine_event(event)
 
     def __init__(self, store: Store | None = None):
         super().__init__()
@@ -90,7 +98,11 @@ class MainWindow(StudioActions, QMainWindow):
         self._pending_run = False
         self._pending_capture = False
         self._state = "IDLE"
+        self._rebalance_timer = QTimer(self)
+        self._rebalance_timer.setSingleShot(True)
+        self._rebalance_timer.timeout.connect(self.rebalance_studio)
         self.init_studio()
+        self.init_v3()
         self._build_ui()
         fit_window(self, 1320, 860)
         self._loading = True
@@ -291,6 +303,8 @@ class MainWindow(StudioActions, QMainWindow):
         self.profile_combo.currentTextChanged.connect(self.select_profile)
         from app.ui.studio import build_studio
         build_studio(self)
+        from app.ui.v3 import upgrade_studio
+        upgrade_studio(self)
 
     def start_hotkeys(self):
         if os.name == "nt":
@@ -338,11 +352,15 @@ class MainWindow(StudioActions, QMainWindow):
         self.activateWindow()
 
     def set_state(self, state):
+        if self._state != state and hasattr(self, "journal"):
+            self.journal.write("state", state=state)
         self._state = state
         self.status.setText("●  " + state)
         self.pause_button.setText("RESUME · F8" if state == "PAUSED" else "PAUSE · F8")
         if state == "PAUSED":
             self.icon.show()
+        if hasattr(self, "live_core"):
+            self.live_core.set_status(state)
 
     def auto_pause_notice(self, reason):
         if self.executor and self._active_plan:
@@ -352,6 +370,8 @@ class MainWindow(StudioActions, QMainWindow):
                          "Незавершённый штрих будет повторён. STOP / F9 завершает рисование.")
 
     def error(self, message):
+        if hasattr(self, "journal"):
+            self.journal.write("error", message=message)
         self.set_state("ERROR")
         self.progress.setRange(0, 100)
         self.log.setText(message)
@@ -392,6 +412,8 @@ class MainWindow(StudioActions, QMainWindow):
 
     def _job_finished(self):
         previous = self.job
+        if self.executor:
+            self.executor.release_input_lease()
         if self.executor and self.executor.clock and self._active_plan is not None:
             total = len(self._active_plan.strokes)
             done = len(self.executor.executed_indices)
@@ -424,6 +446,7 @@ class MainWindow(StudioActions, QMainWindow):
             QTimer.singleShot(0, self.quit_app)
         elif self._analysis_pending:
             self._analysis_timer.start(0)
+        self.v3_job_finished()
 
     def job_progress(self, fraction, text):
         self.progress.setRange(0, 100)
@@ -457,6 +480,7 @@ class MainWindow(StudioActions, QMainWindow):
         self.invalidate_plan()
 
     def set_original(self, image, kind="import"):
+        self._source_provenance = {}
         self.original = image.convert("RGB")
         self.original_source = self.source.currentText()
         self.original_view.set_image(self.original)
@@ -480,6 +504,9 @@ class MainWindow(StudioActions, QMainWindow):
         try:
             self.source.setCurrentText("Image")
             self.set_original(open_image(path))
+            self._project_title = Path(path).stem
+            self.project_name.setText(self._project_title)
+            self.navigate_v3("Workspace")
         except Exception as exc:
             self.error(str(exc))
 
@@ -819,6 +846,10 @@ class MainWindow(StudioActions, QMainWindow):
                               priority_regions=tuple(self.priority_regions), vector_accuracy=self.vector_accuracy.currentText(),
                               safety_buffer=self.safety_buffer.value(), smart_finish=self.smart_finish.isChecked())
         options.opacity, options.game_delay = self.brush_opacity.value(), self.game_delay.value()/1000
+        options.human_mode, options.canvas_fill = self.human_mode.currentText(), dict(self._fill_settings)
+        if p:
+            from app.speed_calibration import profile_key
+            options.input_calibration = self.settings.get("speed_calibrations", {}).get(profile_key(p))
         from app.smart_timer import learned_factor, performance_key
         if p:
             options.time_factor, options.measured_runs = learned_factor(self.store.performance(),
@@ -884,7 +915,8 @@ class MainWindow(StudioActions, QMainWindow):
                            f"{len(self.plan.strokes)} штрихов · {len(self.plan.palette)} цветов · "
                            f"оценка {self.plan.estimated_seconds:.1f} с (зависит от игры)")
         self.log.setText("\n".join(self.plan.notes))
-        self.store.save_plan(self.plan)
+        self.v3_plan_ready(result)
+        self.writer().submit("cache_plan", self.plan)
         self.set_state("IDLE")
         self.progress.setValue(100)
 
@@ -950,6 +982,9 @@ class MainWindow(StudioActions, QMainWindow):
 
     def run_plan(self):
         if not self._require_free():
+            return
+        if self._resume_payload is not None and self.plan is self._resume_payload["plan"] and self._resume_payload["state"]["cursor"]:
+            self.resume_project()
             return
         try:
             if not self.plan or not self.profile:
@@ -1104,13 +1139,17 @@ class MainWindow(StudioActions, QMainWindow):
         self._analysis_timer.stop()
         self.executor = executor
         self._active_plan = plan
+        restored = self._resume_payload["state"]["executed"] if not test and self._resume_payload and plan is self._resume_payload["plan"] else []
+        self.live_core.set_plan(plan, restored)
         self._last_clock = self._last_eta = None
         self._pending_run = True
         try:
+            executor.acquire_input_lease()
             self._activate_target()
         except Exception:
             self._pending_run = False
             self.executor = None
+            executor.release_input_lease()
             raise
         # Give the target time to repaint after app/overlay windows are hidden.
         QTimer.singleShot(1000, lambda: self._launch_draw(executor, plan, limit, test))
@@ -1118,6 +1157,7 @@ class MainWindow(StudioActions, QMainWindow):
     def _launch_draw(self, executor, plan, limit, test):
         self._pending_run = False
         if executor.stop_event.is_set():
+            executor.release_input_lease()
             self.executor = None
             self.icon.show()
             if self._closing:
@@ -1130,7 +1170,17 @@ class MainWindow(StudioActions, QMainWindow):
                 if limit <= plan.safety_buffer:
                     raise SafetyError("До дедлайна слишком мало времени. Синхронизируйте таймер или уменьшите рисунок.")
             target = self._get_target()
+            resume_data = self._resume_payload if not test and self._resume_payload and plan is self._resume_payload["plan"] else None
+            project_id = self.ensure_project(plan) if not test else None
+            checkpoint_sink = self.project_checkpoint_sink(project_id) if project_id else lambda *_: None
             def execute(job):
+                if project_id:
+                    until = time.monotonic()+30
+                    while not self.project_store._path(project_id).exists():
+                        if executor.stop_event.wait(.05):
+                            return "stopped"
+                        if self._last_save_error or time.monotonic() >= until:
+                            raise SafetyError("Проект не сохранён до начала ввода: "+(self._last_save_error or "превышено время ожидания записи"))
                 try:
                     executor.park_pointer(plan)
                     if executor._popup:
@@ -1139,12 +1189,17 @@ class MainWindow(StudioActions, QMainWindow):
                 except InterruptedError:
                     return ("stopped", None, None) if test else "stopped"
                 snapshot = self._capture_bridge.call(lambda: self._screenshot(target))
-                if not blank_white_canvas(snapshot, executor.profile.canvas):
+                if resume_data is not None:
+                    if not self._capture_bridge.call(lambda: self.confirm_project_canvas(snapshot, executor.profile)):
+                        raise InterruptedError("Продолжение отменено пользователем")
+                elif not blank_white_canvas(snapshot, executor.profile.canvas):
                     raise SafetyError("Холст уже закрашен или не белый. Очистите его в игре перед TEST DRAW / RUN. "
                                       "Белые области плана рассчитаны на пустой белый фон.")
                 outcome = executor.run(plan, job.stats.emit, job.state.emit, limit, not test,
                                        deadline=self._draw_deadline, clock_origin=self._begin_timestamp,
-                                       auto_pause=True, notice=job.notice.emit)
+                                       auto_pause=not bool(plan.analysis.get("speed_calibration")), notice=job.notice.emit,
+                                       event=job.engine.emit, checkpoint=checkpoint_sink,
+                                       resume=resume_data["state"] if resume_data else None)
                 if test:
                     after = None
                     if outcome == "finished":
@@ -1159,16 +1214,42 @@ class MainWindow(StudioActions, QMainWindow):
             job.stats.connect(self.live_stats)
             job.state.connect(self.set_state)
             job.notice.connect(self.auto_pause_notice)
+            job.engine.connect(self.dispatch_engine_event)
             if test:
                 done = lambda result: self._test_finished(result[0], result[1], plan, result[2])
             else:
                 done = lambda outcome: self._draw_finished(outcome, plan, executor.completed)
             self._start_job(job, done)
         except Exception as exc:
+            executor.release_input_lease()
             self.executor = None
             self.error(str(exc))
 
     def _test_finished(self, outcome, before, test_plan=None, after=None):
+        if test_plan is not None and test_plan.analysis.get("speed_calibration"):
+            self._speed_calibration = False
+            if outcome == "finished" and after is not None:
+                from app.speed_calibration import inspect_calibration
+                from app.storage import write_json
+                report = inspect_calibration(before, after, self.profile, test_plan,
+                                              getattr(self.executor, "speed_samples", []))
+                write_json(self.store.root/"logs/speed-calibration.json", report)
+                speed = report["recommended_speed"]
+                self.showNormal()
+                if speed:
+                    self.speed.setCurrentText(speed)
+                    self.settings.setdefault("speed_calibrations", {})[report["profile"]] = report
+                    self.store.save_settings(self.settings)
+                    self.log.setText("Калибровка скорости завершена. Принятые длинные штрихи: "+speed+
+                                     ". Очистите тест вручную и выполните PREVIEW. TEST DRAW по-прежнему нужен для цвета и размера.")
+                else:
+                    self.profile.verified = False
+                    self.store.save_profile(self.profile)
+                    self.settings.get("speed_calibrations", {}).pop(report["profile"], None)
+                    self.speed.setCurrentText("Safe")
+                    self.store.save_settings(self.settings)
+                    self.log.setText("Нет подтверждённой скорости: линии не прошли проверку. Проверьте кисть, задержку и координаты.")
+            return
         if outcome != "finished":
             self.show()
             self.log.setText("TEST DRAW остановлен; профиль не подтверждён.")
@@ -1238,6 +1319,8 @@ class MainWindow(StudioActions, QMainWindow):
 
     def live_stats(self, done, total, elapsed, remaining):
         self._last_eta = remaining
+        self.live_core.eta = remaining
+        self.live_core.update()
         self.progress.setRange(0, 100)
         self.progress.setValue(round(100 * done / max(1, total)))
         self.stats.setText(f"{done}/{total} штрихов · прошло {elapsed:.1f} с · "
@@ -1326,6 +1409,27 @@ class MainWindow(StudioActions, QMainWindow):
             self.stop()
             self.log.setText("Остановка… Окно закроется после освобождения ввода и завершения рабочего потока.")
             return
+        if self.background_jobs_running():
+            self._closing = True
+            self.stop_background_jobs()
+            QTimer.singleShot(100, self.quit_app)
+            return
+        if self._project_writer:
+            if not self._project_writer.flush(0):
+                self._closing = True
+                self.project_status.setText("Finishing atomic project save…")
+                QTimer.singleShot(100, self.quit_app)
+                return
+            if self._last_save_error and not getattr(self, "_quit_without_save", False):
+                if QMessageBox.question(self, "Сохранение не подтверждено", "Последняя запись проекта завершилась ошибкой: "+
+                                        self._last_save_error+"\nВыйти без последней контрольной точки?",
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                        QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+                    self._closing = False
+                    self.showNormal()
+                    return
+                self._quit_without_save = True
+            self._project_writer.close()
         if self.hotkeys:
             self.hotkeys.close()
         self._clock_timer.stop()
@@ -1357,7 +1461,7 @@ class MainWindow(StudioActions, QMainWindow):
                 item.setText("" if compact else item.data(Qt.ItemDataRole.UserRole))
             if getattr(self, "_compact_layout", None) != compact:
                 self._compact_layout = compact
-                QTimer.singleShot(0, self.rebalance_studio)
+                self._rebalance_timer.start(0)
 
     def rebalance_studio(self):
         # QSplitter otherwise retains the old navigation allocation even after

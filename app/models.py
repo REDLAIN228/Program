@@ -289,13 +289,16 @@ class Timing:
                 "Normal": cls(), "Fast": cls(.008, .06, 1400, 6),
                 "Turbo · 5": cls(.006, .05, 1800, 5),
                 "Turbo · 6": cls(.005, .05, 2200, 5),
-                "Turbo · 7": cls(.004, .05, 2600, 5)}[name]
+                "Turbo · 7": cls(.004, .05, 2600, 5),
+                "Agile · 8": cls(.004, .045, 3200, 6),
+                "Rapid · 9": cls(.003, .04, 4000, 8),
+                "Sprint · 10": cls(.003, .035, 4800, 10)}[name]
 
     @property
     def control_speed(self) -> float:
         if self.pixels_per_second <= 1400:
             return min(600, self.pixels_per_second)
-        return min(1400, 600+(self.pixels_per_second-1400)/1.5)
+        return min(2600, 600+(self.pixels_per_second-1400)/1.5)
 
     @property
     def control_hold(self) -> float:
@@ -339,6 +342,8 @@ class Stroke:
     priority: int = 0
     importance: float = 50.0
     component_id: int = -1
+    stage: int = 2
+    kind: str = "stroke"
 
     def length(self, size: tuple[int, int]) -> float:
         w, h = size
@@ -423,7 +428,10 @@ class Plan:
             component = s.get("component_id", -1)
             if type(component) is not int or not -1 <= component <= 2**31-1:
                 raise ValueError("Некорректная связная область штриха")
-            strokes.append(Stroke(points, rgb, s["width"], opacity, s.get("priority", 0), importance, component))
+            stage, kind = s.get("stage", 2), s.get("kind", "stroke")
+            if type(stage) is not int or not 0 <= stage <= 6 or kind not in ("stroke", "fill", "contour", "detail", "underpaint"):
+                raise ValueError("Некорректный художественный этап")
+            strokes.append(Stroke(points, rgb, s["width"], opacity, s.get("priority", 0), importance, component, stage, kind))
         timing = Timing(**d["timing"])
         if any(not math.isfinite(v) or v <= 0 for v in asdict(timing).values()):
             raise ValueError("Некорректные интервалы")
@@ -442,7 +450,7 @@ class Plan:
         if (not math.isfinite(plan.time_factor) or not .1 <= plan.time_factor <= 20
                 or not math.isfinite(plan.safety_buffer) or not 0 <= plan.safety_buffer <= 60):
             raise ValueError("Некорректная настройка таймера")
-        if plan.engine not in ("Legacy", "Vector 2.0") or not isinstance(plan.metrics, dict) or not isinstance(plan.analysis, dict):
+        if plan.engine not in ("Legacy", "Vector 2.0", "Human 3.0") or not isinstance(plan.metrics, dict) or not isinstance(plan.analysis, dict):
             raise ValueError("Некорректные данные движка или анализа")
         plan.estimated_seconds *= plan.time_factor
         if plan.target_canvas_size is not None or plan.drawing_rect is not None:

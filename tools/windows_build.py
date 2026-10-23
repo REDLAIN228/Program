@@ -10,8 +10,8 @@ def build_application(root, interpreter, log, run):
         [str(interpreter), "-m", "pip", "install", "-r", str(root / "requirements-dev.txt")],
         [str(interpreter), "-m", "pytest", "-q"],
         [str(interpreter), "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--onedir",
-         "--name", "AnimeDrawer", "--icon", str(root / "assets/anime-drawer.ico"),
-         "--add-data", str(root / "assets/size-digits.npz")+";assets",
+         "--name", "RedlainDrawEngine", "--icon", str(root / "assets/redlain.ico"),
+         "--add-data", str(root / "assets")+";assets",
          "--collect-data", "cv2",
          "--add-data", str(root / "MODEL_NOTICES.md")+";.",
          "--collect-all", "mss", "--collect-all", "keyring",
@@ -33,6 +33,6 @@ def build_application(root, interpreter, log, run):
         if status:
             log.write("Build failed; see the command output above.")
             return 1
-    log.write(f"Build complete: {root / 'dist/AnimeDrawer/AnimeDrawer.exe'}")
-    log.write("Distribute the complete dist/AnimeDrawer folder, including _internal.")
+    log.write(f"Build complete: {root / 'dist/RedlainDrawEngine/RedlainDrawEngine.exe'}")
+    log.write("Distribute the complete dist/RedlainDrawEngine folder, including _internal.")
     return 0

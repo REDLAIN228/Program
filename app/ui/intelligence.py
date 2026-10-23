@@ -204,6 +204,8 @@ class StudioActions:
                  self._last_clock.get("total", 0) if self._last_clock else 0)
         done = len(executor.executed_indices) if executor else (self._last_clock.get("strokes", 0) if self._last_clock else 0)
         progress = min(1., done/max(1, total))
+        if hasattr(self, "live_core") and self.live_core.plan is not None and total == len(self.live_core.plan.strokes):
+            progress = self.live_core.fraction
         if not executor and self._last_clock:
             progress = min(1., self._last_clock.get("progress", 0))
         eta = self._last_eta

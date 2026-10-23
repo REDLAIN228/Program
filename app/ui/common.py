@@ -8,42 +8,46 @@ from PySide6.QtGui import QImage, QPixmap, QColor, QPen, QTextOption, QPainter
 from PySide6.QtWidgets import QLabel, QSizePolicy, QGraphicsView, QGraphicsScene, QTextBrowser
 
 STYLE = """
-QWidget { background: #0B0D12; color: #F5F6FA; font-family: 'Segoe UI'; font-size: 11px; }
-QMainWindow, QDialog { background: #0B0D12; }
-QLabel#brand { font-size: 22px; font-weight: 800; letter-spacing: 2px; }
-QLabel#muted, QLabel#sectionTitle { color: #9299A8; }
+QWidget { background: #111113; color: #F2EFEB; font-family: 'Segoe UI'; font-size: 11px; }
+QMainWindow, QDialog { background: #111113; }
+QLabel#brand { font-size: 19px; font-weight: 700; letter-spacing: 1px; }
+QLabel#heroTitle { font-size: 26px; font-weight: 600; padding: 20px 0 4px; letter-spacing: 1px; }
+QFrame#projectCard, QFrame#discoveryCard { background: #19191c; border: 1px solid #303034; border-radius: 12px; }
+QFrame#projectCard QLabel, QFrame#discoveryCard QLabel { background: transparent; border: 0; }
+QListWidget#projectList { border: 0; background: #111113; }
+QLabel#muted, QLabel#sectionTitle { color: #95959c; }
 QLabel#sectionTitle { font-size: 12px; font-weight: 700; padding: 8px 0; letter-spacing: 1px; }
-QPushButton { background: #1A1F2B; border: 1px solid #30384A; border-radius: 7px;
+QPushButton { background: #202023; border: 1px solid #36363b; border-radius: 7px;
  padding: 8px 10px; min-height: 18px; }
-QPushButton:hover { background: #2A3244; border-color: #E73558; }
-QPushButton:checked { background: #402035; border-color: #E73558; }
-QPushButton:disabled { color: #626B80; background: #131720; border-color: #222A39; }
-QPushButton#primary { background: #E73558; border-color: #F45B79; font-weight: 700; }
-QPushButton#primary:hover { background: #F04B6C; }
+QPushButton:hover { background: #2b2b30; border-color: #b4414d; }
+QPushButton:checked { background: #34262a; border-color: #b4414d; }
+QPushButton:disabled { color: #626268; background: #171719; border-color: #28282d; }
+QPushButton#primary { background: #a93643; border-color: #c84550; font-weight: 700; }
+QPushButton#primary:hover { background: #bc414f; }
 QPushButton#danger { color: #FF8298; }
-QLineEdit, QTextEdit, QComboBox, QSpinBox { background: #131720; border: 1px solid #2B3345;
- border-radius: 6px; padding: 6px; selection-background-color: #E73558; }
+QLineEdit, QTextEdit, QComboBox, QSpinBox { background: #19191c; border: 1px solid #343439;
+ border-radius: 6px; padding: 6px; selection-background-color: #a93643; }
 QComboBox::drop-down { border: none; width: 20px; }
-QComboBox QAbstractItemView { background: #1A1F2B; selection-background-color: #402035; }
+QComboBox QAbstractItemView { background: #202023; selection-background-color: #3b292d; }
 QProgressBar { background: #1A1F2B; border: none; border-radius: 4px; height: 7px; text-align: center; }
 QProgressBar::chunk { background: #E73558; border-radius: 4px; }
-QTabWidget::pane, QGraphicsView { border: 1px solid #242D40; border-radius: 10px; background: #0B0D12; }
-QTabBar::tab { padding: 8px 12px; background: #131720; }
-QTabBar::tab:selected { background: #322335; color: #FF8298; }
-QListWidget { background: #131720; border: 1px solid #242D40; border-radius: 10px; }
+QTabWidget::pane, QGraphicsView { border: 1px solid #303035; border-radius: 10px; background: #101012; }
+QTabBar::tab { padding: 8px 12px; background: #19191c; }
+QTabBar::tab:selected { background: #34272b; color: #f0c1c5; }
+QListWidget { background: #19191c; border: 1px solid #303035; border-radius: 10px; }
 QListWidget#navigation { border: none; padding: 6px; }
-QListWidget#navigation::item { padding: 12px 6px; border-radius: 7px; color: #9299A8; }
-QListWidget#navigation::item:selected { background: #352032; color: #F5F6FA; }
-QListWidget#navigation::item:hover { background: #1A1F2B; }
+QListWidget#navigation::item { padding: 12px 6px; border-radius: 7px; color: #95959c; }
+QListWidget#navigation::item:selected { background: #34272b; color: #f5f2ed; }
+QListWidget#navigation::item:hover { background: #232326; }
 QCheckBox { spacing: 7px; }
-QToolTip { color: #F5F6FA; background: #1A1F2B; border: 1px solid #E73558; }
-QSlider::groove:horizontal { height: 5px; background: #242D40; border-radius: 2px; }
-QSlider::handle:horizontal { width: 12px; margin: -4px 0; border-radius: 6px; background: #E73558; }
-QScrollArea { border: none; background: #131720; }
-QScrollBar:vertical { background: #131720; width: 8px; margin: 0; }
-QScrollBar::handle:vertical { background: #394258; border-radius: 4px; min-height: 24px; }
+QToolTip { color: #f5f2ed; background: #202023; border: 1px solid #77454d; }
+QSlider::groove:horizontal { height: 5px; background: #343439; border-radius: 2px; }
+QSlider::handle:horizontal { width: 12px; margin: -4px 0; border-radius: 6px; background: #c84550; }
+QScrollArea { border: none; background: #19191c; }
+QScrollBar:vertical { background: #19191c; width: 8px; margin: 0; }
+QScrollBar::handle:vertical { background: #44444a; border-radius: 4px; min-height: 24px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QSplitter::handle { background: #202737; width: 1px; }
+QSplitter::handle { background: #303035; width: 1px; }
 """
 
 
@@ -183,6 +187,7 @@ class GuiBridge(QObject):
 
     def __init__(self):
         super().__init__()
+        self._owner_ident = threading.get_ident()
         self.requested.connect(self._dispatch)
 
     @Slot(object)
@@ -196,7 +201,9 @@ class GuiBridge(QObject):
             finished.set()
 
     def call(self, function):
-        if QThread.currentThread() == self.thread():
+        # Avoid adopting/wrapping the native main QThread merely to compare
+        # affinity. Its Python wrapper can outlive QApplication during teardown.
+        if threading.get_ident() == self._owner_ident:
             return function()
         finished, values = threading.Event(), []
         self.requested.emit((function, finished, values))

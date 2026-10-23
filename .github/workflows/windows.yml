@@ -29,8 +29,8 @@ jobs:
         if: always()
         run: python tools/ci_summary.py artifacts/pytest-output.txt "$env:GITHUB_STEP_SUMMARY"
       - name: Build Windows desktop executable
-        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name AnimeDrawer --icon assets/anime-drawer.ico --add-data "assets/size-digits.npz;assets" --collect-data cv2 --add-data "MODEL_NOTICES.md;." --collect-all mss --collect-all keyring --hidden-import keyring.backends.Windows main.py
+        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name RedlainDrawEngine --icon assets/redlain.ico --add-data "assets;assets" --collect-data cv2 --add-data "MODEL_NOTICES.md;." --collect-all mss --collect-all keyring --hidden-import keyring.backends.Windows main.py
       - uses: actions/upload-artifact@v4
         with:
-          name: AnimeDrawer-Windows
-          path: dist/AnimeDrawer/
+          name: RedlainDrawEngine-Windows
+          path: dist/RedlainDrawEngine/

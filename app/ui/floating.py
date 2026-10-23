@@ -1,5 +1,6 @@
 from PySide6.QtCore import QPoint, Qt, Signal, QRectF
 from PySide6.QtGui import QAction, QColor, QPainter, QPen
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QInputDialog, QMenu, QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 
 
@@ -17,7 +18,9 @@ class FloatingIcon(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedSize(48, 48)
         self.setWindowOpacity(.86)
-        self.setToolTip("ANIME DRAWER · открыть панель\nПеретащите для перемещения")
+        self.setToolTip("REDLAIN DRAW ENGINE · открыть панель\nПеретащите для перемещения")
+        from pathlib import Path
+        self.brand_renderer = QSvgRenderer(str(Path(__file__).resolve().parents[2]/"assets/redlain-icon.svg"), self)
         self.anchor = self.origin = None
         self.dragged = False
         self.progress = 0.
@@ -29,7 +32,7 @@ class FloatingIcon(QWidget):
                                  "QPushButton {background:#1a1f2b;color:#f5f6fa;border:1px solid #343d51;"
                                  "border-radius:6px;padding:8px;} QPushButton:hover {background:#333d53;}")
         layout = QVBoxLayout(self.popup)
-        layout.addWidget(QLabel("ANIME DRAWER 2.0"))
+        layout.addWidget(QLabel("REDLAIN DRAW ENGINE 3.0"))
         self.status_label, self.time_label = QLabel("IDLE · 0%"), QLabel("Осталось —")
         layout.addWidget(self.status_label)
         layout.addWidget(self.time_label)
@@ -45,7 +48,7 @@ class FloatingIcon(QWidget):
         layout.addWidget(open_button)
         self.popup.setWindowOpacity(.95)
         self.menu = QMenu(self)
-        action = self.menu.addAction("Открыть ANIME DRAWER")
+        action = self.menu.addAction("Открыть REDLAIN DRAW ENGINE")
         action.triggered.connect(self.opened)
         self.menu.addAction("Прозрачность…", self.opacity_dialog)
         self.menu.addSeparator()
@@ -54,14 +57,11 @@ class FloatingIcon(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor("#fa627a"), 1.5))
-        painter.setBrush(QColor("#201e29"))
+        painter.setPen(QPen(QColor("#544044"), 1.))
+        painter.setBrush(QColor("#19191c"))
         painter.drawRoundedRect(2, 2, 44, 44, 14, 14)
-        painter.setPen(QPen(QColor("#ef4b68"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        painter.drawLine(15, 33, 24, 14)
-        painter.drawLine(24, 14, 34, 33)
-        painter.drawLine(19, 27, 30, 27)
-        painter.setPen(QPen(QColor("#e73558"), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        self.brand_renderer.render(painter, QRectF(5, 5, 38, 38))
+        painter.setPen(QPen(QColor("#c84550"), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         painter.drawArc(QRectF(1, 1, 46, 46), 90*16, -round(360*16*self.progress))
 
     def update_status(self, state, progress, remaining):

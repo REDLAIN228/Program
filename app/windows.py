@@ -153,6 +153,7 @@ def capture_client(state: WindowState):
 
 
 class Win32Backend:
+    external_input = True
     def __init__(self, hwnd: int):
         _require_windows()
         self.hwnd = hwnd
@@ -217,6 +218,8 @@ class Win32Backend:
         self._send(0x0004)
 
     def _key(self, vk, up=False):
+        if not up and getattr(self, "telemetry", None):
+            self.telemetry.add(key_presses=1)
         # The game's text entry can accept printable VK events while ignoring
         # edit keys lacking a hardware scan code. Use ordinary SendInput scan
         # packets for editing/commit; printable digits keep the existing VK path.

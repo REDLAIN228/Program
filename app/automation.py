@@ -74,6 +74,20 @@ class DrawingExecutor:
         self._auto_pause = False
         self._next_ink_check = 0.
         self._ink_checkpoint = 0
+        from app.telemetry import InputTelemetry
+        self.telemetry = InputTelemetry()
+        self.backend.telemetry = self.telemetry
+        self._event_sink = lambda *_: None
+        self._checkpoint_sink = lambda *_: None
+        self._save_event = threading.Event()
+        self._last_save = time.monotonic()
+        self._last_cursor_event = 0.
+        self._active_stroke_event = None
+        self._checkpoint_lock = threading.RLock()
+        self._published_checkpoint = dict(cursor=0, executed=[], skipped=[], status="ready", metrics={}, controls={})
+        self.speed_samples = []
+        self._fast_sampling = False
+        self._input_lease = None
         self._popup = None
         if profile.popup_controls:
             from app.popup_controls import PopupController
@@ -82,6 +96,23 @@ class DrawingExecutor:
     def _release(self):
         self.backend.up()
         self._released_at = time.monotonic()
+
+    def acquire_input_lease(self):
+        if self._input_lease is not None or not getattr(self.backend, "external_input", False):
+            return False
+        from app.input_lock import InputLease
+        lease = InputLease()
+        try:
+            lease.acquire()
+        except (RuntimeError, OSError) as exc:
+            raise SafetyError(str(exc)) from exc
+        self._input_lease = lease
+        return True
+
+    def release_input_lease(self):
+        if self._input_lease is not None:
+            lease, self._input_lease = self._input_lease, None
+            lease.release()
 
     def _press(self, kind="control"):
         self._guard()
@@ -94,6 +125,7 @@ class DrawingExecutor:
         else:
             self.backend.down()
         self._released_at = None
+        self.telemetry.add(mouse_presses=1)
 
     def _arrive(self, point, plan, *, pen_start=False, delay=None):
         """Do not press while Windows or the game still sees the previous position."""
@@ -166,8 +198,11 @@ class DrawingExecutor:
         p = self.profile
         if ((state.client.width, state.client.height) != p.client_size or state.dpi != p.dpi
                 or state.window_class != p.target_class or state.process.casefold() != p.target_process.casefold()):
-            raise SafetyError("Восстановленное окно не соответствует профилю. Верните прежний размер окна и DPI.")
+            raise SafetyError(f"Восстановленное окно не соответствует профилю. Нужно {p.client_size[0]}×{p.client_size[1]}, "
+                              f"DPI {p.dpi}, {p.target_process}/{p.target_class}; сейчас {state.client.width}×{state.client.height}, "
+                              f"DPI {state.dpi}, {state.process}/{state.window_class}. Верните прежний режим окна или обновите калибровку проекта.")
         self.backend = backend
+        self.backend.telemetry = self.telemetry
         self._session = state
         self._pointer = None
 
@@ -200,12 +235,17 @@ class DrawingExecutor:
             if remaining <= 0:
                 raise DeadlineReached("Достигнут лимит раунда. Рисование остановлено.")
             seconds = min(seconds, remaining)
-        if self.stop_event.wait(seconds):
+        waited_at = time.monotonic()
+        stopped = self.stop_event.wait(seconds)
+        self.telemetry.add(wait_seconds=time.monotonic()-waited_at, wait_calls=1)
+        if stopped:
             raise InterruptedError("Рисование остановлено")
         if self._deadline is not None and time.monotonic() >= self._deadline:
             raise DeadlineReached("Достигнут лимит раунда. Рисование остановлено.")
         if self.pause_event.is_set() or self._interrupted.is_set():
             raise _Paused()
+        if self.clock and (self._save_event.is_set() or time.monotonic()-self._last_save >= 30):
+            self._publish_checkpoint("drawing", force=True)
 
     def _move(self, x: int, y: int) -> None:
         self._guard()
@@ -218,6 +258,60 @@ class DrawingExecutor:
             raise SafetyError("Донатная область исключена из управления")
         self.backend.move(x, y)
         self._pointer = (x, y)
+        self.telemetry.movement((x, y), self._pen_started is not None)
+        if self._active_stroke_event and self._pen_started is not None and time.monotonic()-self._last_cursor_event >= .06:
+            self._last_cursor_event = time.monotonic()
+            area = self._event_canvas
+            self._event_sink({**self._active_stroke_event, "type": "cursor",
+                              "position": [(x-area.x)/area.width, (y-area.y)/area.height]})
+
+    def request_checkpoint(self):
+        self._save_event.set()
+
+    def checkpoint_snapshot(self):
+        from copy import deepcopy
+        with self._checkpoint_lock:
+            published = self._published_checkpoint
+            # The runner only appends these ledgers between publications. Slice
+            # at the published cursor so a UI save cannot include half a commit.
+            cursor = published["cursor"]
+            return deepcopy({**published, "executed": [i for i in published["executed"] if i < cursor],
+                             "skipped": [i for i in published["skipped"] if i < cursor]})
+
+    def _publish_checkpoint(self, status, *, force=False):
+        """Called by the drawing thread at mouse-up boundaries or while paused."""
+        metrics = {**(self.clock.snapshot() if self.clock else {}), "draw_seconds": self._pen_seconds,
+                   "telemetry": self.telemetry.snapshot()}
+        snapshot = dict(cursor=self.completed, executed=self.executed_indices, skipped=self.skipped_indices,
+                        confirmed_cursor=min(self.completed, self._ink_checkpoint), status=status, metrics=metrics,
+                        completed_stages=getattr(self, "_completed_stages", []),
+                        controls=dict(color=self._color, width=self._width, opacity=self._opacity,
+                                      window_origin=[self._session.client.x, self._session.client.y] if self._session else None,
+                                      dpi=self._session.dpi if self._session else self.profile.dpi),
+                        stage=self._active_stroke_event.get("stage", 0) if self._active_stroke_event else 0)
+        with self._checkpoint_lock:
+            self._published_checkpoint = snapshot
+        if force or self._save_event.is_set() or time.monotonic()-self._last_save >= 30:
+            done = set(self.executed_indices)
+            self._completed_stages = [stage for stage, members in getattr(self, "_stage_members", {}).items()
+                                      if members and members.issubset(done)]
+            with self._checkpoint_lock:
+                self._published_checkpoint["completed_stages"] = list(self._completed_stages)
+            canvas = None
+            capture = getattr(self.backend, "capture_region", None)
+            try:
+                if capture and self._session and status != "paused" and self._pen_started is None:
+                    state = self._guard()
+                    r = self.profile.canvas
+                    region = Rect(r.x+state.client.x, r.y+state.client.y, r.width, r.height)
+                    if all(self.backend.point_belongs_to_target(x, y) for x, y in
+                           [(region.x, region.y), (region.x+region.width-1, region.y+region.height-1)]):
+                        canvas = capture(region)
+            except (SafetyError, InterruptedError):
+                pass  # Save the ledger even if the game is no longer capturable.
+            self._checkpoint_sink(self.checkpoint_snapshot(), canvas)
+            self._last_save = time.monotonic()
+            self._save_event.clear()
 
     def _travel(self, x: int, y: int, plan: Plan) -> None:
         """Move with the button released; drawing samples still use _move directly."""
@@ -526,6 +620,7 @@ class DrawingExecutor:
                 self.profile.brush_slider.point(width)
         self._session = self._guard()
         self._deadline = time.monotonic()+120
+        acquired_here = self.acquire_input_lease()
         try:
             for index, width in enumerate(widths):
                 if width not in {b.pixels for b in self.profile.brushes}:
@@ -547,7 +642,11 @@ class DrawingExecutor:
         except InterruptedError:
             return "Проверка размера остановлена."
         finally:
-            self._release()
+            try:
+                self._release()
+            finally:
+                if acquired_here:
+                    self.release_input_lease()
 
     def validate_plan(self, plan: Plan, require_verified: bool = True) -> None:
         if self.profile.brush_slider:
@@ -576,14 +675,34 @@ class DrawingExecutor:
     def run(self, plan: Plan, progress=lambda *_: None, state=lambda *_: None,
             time_limit: float | None = None, require_verified: bool = True,
             deadline: float | None = None, clock_origin: float | None = None,
-            *, auto_pause: bool = False, notice=lambda *_: None) -> str:
+            *, auto_pause: bool = False, notice=lambda *_: None,
+            event=lambda *_: None, checkpoint=lambda *_: None, resume=None) -> str:
         if self.stop_event.is_set():
             self._release()
             state("IDLE")
             return "stopped"
         self.validate_plan(plan, require_verified)
+        self._event_sink, self._checkpoint_sink = event, checkpoint
+        if resume is not None:
+            from app.projects import validate_checkpoint
+            saved = validate_checkpoint(resume, len(plan.strokes))
+            self.completed = saved["cursor"]
+            self.executed_indices, self.skipped_indices = list(saved["executed"]), list(saved["skipped"])
         self._deadline = None
         self._auto_pause = auto_pause
+        self._fast_sampling = False
+        calibration = plan.analysis.get("input_calibration", {})
+        if calibration:
+            from app.speed_calibration import profile_key
+            name = calibration.get("recommended_speed")
+            try:
+                verified_speed = Timing.preset(name).pixels_per_second
+            except KeyError:
+                verified_speed = 0
+            self._fast_sampling = (calibration.get("profile") == profile_key(self.profile)
+                                   and calibration.get("geometry_ok") is True
+                                   and any(s.get("speed") == name and s.get("accepted") is True for s in calibration.get("samples", []))
+                                   and verified_speed >= plan.timing.pixels_per_second)
         self.pause_reason = ""
         self._next_ink_check = 0.
         self._ink_checkpoint = self.completed
@@ -597,6 +716,19 @@ class DrawingExecutor:
         from app.smart_timer import DrawingClock, costs, transition_cost
         self.clock = DrawingClock(None if self._deadline is None else max(0., self._deadline-started))
         self.total_strokes = len(plan.strokes)
+        self._stage_members = {stage: {i for i, stroke in enumerate(plan.strokes) if stroke.stage == stage} for stage in range(7)}
+        self._completed_stages = []
+        if resume is not None:
+            prior = saved.get("metrics", {})
+            prior_elapsed = max(0., float(prior.get("elapsed", 0)))
+            self.clock.started -= prior_elapsed
+            self.clock.pause_total = max(0., float(prior.get("paused", 0)))
+            if self.clock.limit is not None:
+                self.clock.limit += prior_elapsed
+            self._pen_seconds = max(0., float(prior.get("draw_seconds", 0)))
+            if isinstance(prior.get("telemetry"), dict):
+                self.telemetry.add(**{key: value for key, value in prior["telemetry"].items()
+                                      if isinstance(value, (int, float)) and math.isfinite(value) and value >= 0})
         if clock_origin is not None:
             self.clock.started = clock_origin
             self.clock.limit = None if self._deadline is None else max(0., self._deadline-clock_origin)
@@ -615,15 +747,19 @@ class DrawingExecutor:
         started_fills, skipped_fills = set(), set()
         future_skipped_price = 0.
         measured_actual = measured_prediction = 0.
-        self.executed_indices, self.skipped_indices = [], []
+        if resume is None:
+            self.executed_indices, self.skipped_indices = [], []
+        self._publish_checkpoint("drawing")
         pause_seconds = 0.
         anchors_checked = False
+        lease_acquired_here = self.acquire_input_lease()
         try:
             state("DRAWING")
             while self.completed < len(plan.strokes):
                 try:
                     if self.pause_event.is_set() or self._interrupted.is_set():
                         state("PAUSED")
+                        self._publish_checkpoint("paused", force=True)
                         pause_start = time.monotonic()
                         if self.pause_event.is_set():
                             self.clock.pause()
@@ -632,6 +768,8 @@ class DrawingExecutor:
                                 raise DeadlineReached("Лимит раунда истёк во время паузы")
                             if self.stop_event.wait(.025):
                                 raise InterruptedError("Рисование остановлено")
+                            if self._save_event.is_set() or time.monotonic()-self._last_save >= 30:
+                                self._publish_checkpoint("paused", force=True)
                         pause_seconds += time.monotonic() - pause_start
                         self.clock.resume()
                         self._interrupted.clear()
@@ -700,11 +838,19 @@ class DrawingExecutor:
                     if fill_key is not None:
                         started_fills.add(fill_key)  # A paused partial fill must be replayed, never silently dropped.
                     try:
-                        self._execute(stroke, plan, started, time_limit)
+                        execution_plan = plan
+                        speeds = plan.analysis.get("speed_calibration")
+                        if speeds:
+                            from dataclasses import replace
+                            execution_plan = replace(plan, timing=replace(Timing.preset(speeds[self.completed]),
+                                                                         game_delay=plan.timing.game_delay))
+                        self._execute(stroke, execution_plan, started, time_limit)
                     except _Paused:
                         self._release()
                         continue
                     duration = time.monotonic()-stroke_started
+                    if plan.analysis.get("speed_calibration"):
+                        self.speed_samples.append(duration)
                     self.executed_indices.append(self.completed)
                     measured_actual += duration
                     measured_prediction += current_price/plan.time_factor
@@ -712,6 +858,10 @@ class DrawingExecutor:
                         ratio = max(.25, min(4., duration/current_price))
                         observed_factor = .8*observed_factor+.2*ratio
                     self.completed += 1
+                    next_stage = plan.strokes[self.completed].stage if self.completed < len(plan.strokes) else None
+                    self._publish_checkpoint("drawing", force=next_stage != stroke.stage)
+                    self._event_sink(dict(type="stroke_complete", index=self.completed-1, stage=stroke.stage,
+                                          completed=self.completed, executed=len(self.executed_indices), total=len(plan.strokes)))
                     elapsed = time.monotonic()-started
                     progress(len(self.executed_indices), len(plan.strokes), elapsed,
                              suffix[self.completed]*observed_factor)
@@ -724,6 +874,7 @@ class DrawingExecutor:
                                                if plan.strokes[i].priority == 1
                                                and (plan.strokes[i].color, plan.strokes[i].component_id) in skipped_fills)
                     self.pause_reason = str(exc)
+                    self._fast_sampling = False  # Revert to conservative samples after an input failure.
                     try:
                         self.pause()
                     except SafetyError as release_error:
@@ -741,10 +892,16 @@ class DrawingExecutor:
             state("IDLE")
             return "stopped"
         finally:
-            self._release()
-            self.run_metrics = {**self.clock.snapshot(), "actual": measured_actual,
-                                "predicted": measured_prediction, "strokes": len(self.executed_indices),
-                                "skipped": len(self.skipped_indices), "draw_seconds": self._pen_seconds}
+            try:
+                self._release()
+                self.run_metrics = {**self.clock.snapshot(), "actual": measured_actual,
+                                    "predicted": measured_prediction, "strokes": len(self.executed_indices),
+                                    "skipped": len(self.skipped_indices), "draw_seconds": self._pen_seconds}
+                self.run_metrics["telemetry"] = self.telemetry.snapshot()
+                self._publish_checkpoint("finished" if self.completed == len(plan.strokes) else "paused", force=True)
+            finally:
+                if lease_acquired_here:
+                    self.release_input_lease()
 
     def _palette_marker(self, kind):
         locator = getattr(self.backend, "color_control_marker", None)
@@ -922,6 +1079,7 @@ class DrawingExecutor:
     def _confirm_ink(self, probe, plan):
         if probe is None:
             return
+        self._event_sink({**self._active_stroke_event, "type": "operation", "operation": "Проверка следа"})
         # Input can precede rendering. A single unchanged screenshot is not a failure.
         for attempt in range(4):
             self._guard()
@@ -939,13 +1097,21 @@ class DrawingExecutor:
         self.completed = min(self.completed, self._ink_checkpoint)
         self.executed_indices = [i for i in self.executed_indices if i < self.completed]
         self.skipped_indices = [i for i in self.skipped_indices if i < self.completed]
+        self._event_sink(dict(type="rewind", executed=list(self.executed_indices)))
 
     def _execute(self, stroke: Stroke, plan: Plan, started: float,
                  time_limit: float | None) -> None:
+        self._active_stroke_event = dict(index=self.completed, stage=stroke.stage, operation=stroke.kind,
+                                         total=len(plan.strokes))
+        self._event_sink({**self._active_stroke_event, "type": "stroke_start"})
+        old_color, old_width = self._color, self._width
+        if old_color != stroke.color or old_width != stroke.width:
+            self._event_sink({**self._active_stroke_event, "type": "operation", "operation": "Настройка цвета и кисти"})
         if self._popup:
             self._popup.prepare(stroke.color, stroke.width, plan)
         else:
             self._prepare_controls(stroke, plan)
+        self.telemetry.add(color_requests=int(old_color != self._color), brush_requests=int(old_width != self._width))
         feedback = self.profile.feedback
         assert self._session
         canvas = plan.drawing_area(self.profile.canvas)
@@ -956,8 +1122,10 @@ class DrawingExecutor:
         else:
             self._travel(*points[0], plan)
         self._guard()
+        self._event_sink({**self._active_stroke_event, "type": "operation", "operation": "Непрерывный мазок"})
         screen_canvas = Rect(canvas.x+self._session.client.x, canvas.y+self._session.client.y,
                              canvas.width, canvas.height)
+        self._event_canvas = screen_canvas
         try:
             probe = self._ink_probe(points, stroke, screen_canvas, plan)
         except DeadlineReached:
@@ -969,9 +1137,22 @@ class DrawingExecutor:
             self._pen_started = time.monotonic()
             self._press(kind="stroke")
             self._wait(plan.timing.pen_hold*self._latency if feedback else plan.timing.event)
-            for a, b in zip(points, points[1:]):
+            for segment_index, (a, b) in enumerate(zip(points, points[1:])):
                 length = math.hypot(b[0] - a[0], b[1] - a[1])
-                steps = max(1, math.ceil(length / plan.timing.pen_sample(stroke.width, bool(feedback))))
+                sample = plan.timing.pen_sample(stroke.width, bool(feedback))
+                if self._fast_sampling or plan.analysis.get("speed_calibration"):
+                    sample = min(plan.timing.sample_pixels, 4 if stroke.importance >= 85 else 12)
+                steps = max(1, math.ceil(length / sample))
+                movement_speed = plan.timing.pixels_per_second
+                if plan.engine == "Human 3.0":
+                    factor = .7 if stroke.importance >= 85 else 1.
+                    if segment_index and length:
+                        previous = points[segment_index-1]
+                        incoming = math.dist(previous, a)
+                        if incoming:
+                            cosine = ((a[0]-previous[0])*(b[0]-a[0])+(a[1]-previous[1])*(b[1]-a[1]))/(incoming*length)
+                            if cosine < .7: factor = min(factor, .55)
+                    movement_speed *= factor/max(1., self._latency)
                 for i in range(1, steps + 1):
                     if self._deadline is not None and time.monotonic() >= self._deadline:
                         raise DeadlineReached("Достигнут лимит раунда")
@@ -979,7 +1160,7 @@ class DrawingExecutor:
                     y = round(a[1] + (b[1] - a[1]) * i / steps)
                     self._move(x, y)
                     self._wait(plan.timing.pen_event(stroke.width, bool(feedback))
-                               + length / steps / plan.timing.pixels_per_second)
+                               + length / steps / movement_speed)
             if feedback:
                 if stroke.opacity == 1:
                     self._finish_stroke(points, plan)
