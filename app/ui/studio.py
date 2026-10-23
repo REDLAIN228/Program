@@ -192,6 +192,11 @@ def build_studio(p):
     p.game_delay.setValue(250)
     p.game_delay.setToolTip("Ожидание игры перед нажатием и после отпускания. При пропусках попробуйте 250–300 ms.")
     f.addRow("Задержка игры", p.game_delay)
+    auto_pause_info = QLabel("Автопауза включена · F8 — продолжить")
+    auto_pause_info.setWordWrap(True)
+    auto_pause_info.setToolTip("Потеря окна, фокуса, отказ управления или отсутствие ожидаемого следа "
+                              "приостанавливают текущий рисунок. Прогресс хранится, пока программа открыта.")
+    f.addRow(auto_pause_info)
     p.brush_opacity = QSpinBox()
     p.brush_opacity.setRange(1, 100)
     p.brush_opacity.setSuffix("%")

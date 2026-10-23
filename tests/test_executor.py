@@ -47,6 +47,32 @@ def plan():
                 Timing(.0001, .0001, 1000000, 10), .1, "a", [(20, 20, 28)])
 
 
+class PaintingBackend(Backend):
+    def __init__(self, canvas, enabled=True, delayed_frames=0):
+        from PIL import Image
+        super().__init__()
+        self.canvas, self.enabled, self.delayed_frames = canvas, enabled, delayed_frames
+        self.image = Image.new("RGB", (400, 400), "white")
+        self.point, self.post_frames = (0, 0), 0
+
+    def move(self, x, y):
+        from PIL import ImageDraw
+        local = (x-self.state.client.x, y-self.state.client.y)
+        if self.pressed and self.enabled and self.canvas.contains(*local):
+            ImageDraw.Draw(self.image).line([self.point, local], fill=(20, 20, 28), width=3)
+        self.point = local
+        super().move(x, y)
+
+    def capture_region(self, r):
+        from PIL import Image
+        if any(e[0] == "down" for e in self.events) and not self.pressed:
+            self.post_frames += 1
+        if self.post_frames < self.delayed_frames:
+            return Image.new("RGB", (r.width, r.height), "white")
+        x, y = r.x-self.state.client.x, r.y-self.state.client.y
+        return self.image.crop((x, y, x+r.width, y+r.height))
+
+
 def test_executor_selects_tools_and_translates_to_negative_monitor(profile):
     backend = Backend()
     executor = DrawingExecutor(backend, profile)
@@ -122,6 +148,177 @@ def test_pause_releases_mouse_and_resume_replays_incomplete_stroke(profile):
     assert executor.completed == 1
     assert not backend.pressed
     assert sum(e[0] == "down" for e in backend.events) >= 4
+
+
+@pytest.mark.parametrize("failure", ["focus", "geometry", "occlusion", "closed", "hung"])
+def test_auto_pause_keeps_completed_strokes_and_replays_failed_stroke(profile, failure):
+    backend = Backend()
+    original = backend.state
+    backend.closed = backend.hung = False
+    def snapshot():
+        if backend.closed:
+            raise SafetyError("Целевое окно закрыто")
+        return backend.state
+    backend.snapshot = snapshot
+    backend.unavailable_reason = lambda: "Roblox не отвечает" if backend.hung else ""
+    executor = DrawingExecutor(backend, profile)
+    drawing = plan()
+    drawing.strokes *= 2
+    triggered = False
+    def hook():
+        nonlocal triggered
+        if backend.pressed and executor.completed == 1 and not triggered:
+            triggered = True
+            if failure == "focus": backend.focus = False
+            if failure == "geometry": backend.state = replace(original, client=Rect(-199, 40, 400, 400))
+            if failure == "occlusion": backend.occluded = True
+            if failure == "closed": backend.closed = True
+            if failure == "hung": backend.hung = True
+    backend.hook = hook
+    paused = threading.Event()
+    outcomes, errors, notices = [], [], []
+    def run():
+        try:
+            outcomes.append(executor.run(drawing, auto_pause=True, notice=notices.append,
+                                        state=lambda value: paused.set() if value == "PAUSED" else None))
+        except Exception as exc:
+            errors.append(exc)
+    thread = threading.Thread(target=run)
+    thread.start()
+    try:
+        assert paused.wait(2)
+        assert executor.pause_event.is_set() and executor.pause_reason and notices
+        assert not backend.pressed and executor.completed == 1 and executor.executed_indices == [0]
+        count = len(backend.events)
+        assert not threading.Event().wait(.05)
+        assert len(backend.events) == count  # No retries, moves or clicks while unavailable.
+        backend.focus, backend.occluded = True, False
+        backend.closed = backend.hung = False
+        backend.state = original
+        executor.pause(False)
+        thread.join(3)
+        assert not thread.is_alive() and not errors and outcomes == ["finished"]
+        assert executor.executed_indices == [0, 1] and executor.completed == 2
+        assert not backend.pressed and not executor.pause_reason
+    finally:
+        executor.stop()
+        thread.join(2)
+
+
+def test_auto_pause_does_not_resume_itself_and_stop_works_with_closed_game(profile):
+    backend = Backend()
+    backend.focus = False
+    executor = DrawingExecutor(backend, profile)
+    paused = threading.Event()
+    result = []
+    thread = threading.Thread(target=lambda: result.append(executor.run(
+        plan(), auto_pause=True, state=lambda value: paused.set() if value == "PAUSED" else None)))
+    thread.start()
+    try:
+        assert paused.wait(2)
+        backend.focus = True
+        assert not threading.Event().wait(.05)
+        assert executor.pause_event.is_set() and not any(e[0] == "down" for e in backend.events)
+        backend.snapshot = lambda: (_ for _ in ()).throw(SafetyError("Окно закрыто"))
+        executor.stop()
+        thread.join(2)
+        assert result == ["stopped"] and not thread.is_alive() and not backend.pressed
+    finally:
+        executor.stop()
+        thread.join(2)
+
+
+def test_rebind_after_restart_is_explicit_and_checks_profile_before_resume(profile):
+    executor = DrawingExecutor(Backend(), profile)
+    new = Backend()
+    new.state = replace(new.state, handle=456, client=Rect(100, 100, 400, 400))
+    with pytest.raises(SafetyError, match="паузе"):
+        executor.rebind_target(new)
+    executor.pause()
+    new.state = replace(new.state, dpi=144)
+    with pytest.raises(SafetyError, match="профилю"):
+        executor.rebind_target(new)
+    new.state = replace(new.state, dpi=96)
+    executor.rebind_target(new)
+    assert executor.backend is new and executor._session.handle == 456
+    assert executor.pause_event.is_set() and executor._pointer is None
+
+
+def test_auto_pause_never_masks_invalid_plan_or_round_deadline(profile):
+    executor = DrawingExecutor(Backend(), profile)
+    drawing = plan()
+    drawing.strokes[0] = replace(drawing.strokes[0], width=999)
+    with pytest.raises(SafetyError, match="некалиброванные"):
+        executor.run(drawing, auto_pause=True)
+    assert not executor.pause_event.is_set()
+    drawing = plan()
+    drawing.smart_finish = True
+    assert executor.run(drawing, auto_pause=True, deadline=time.monotonic()-1) == "deadline"
+    assert not executor.pause_event.is_set()
+
+
+@pytest.mark.parametrize("delayed_render", [False, True])
+def test_auto_pause_uses_visible_ink_and_allows_render_latency(profile, delayed_render):
+    backend = PaintingBackend(profile.canvas, enabled=delayed_render, delayed_frames=3 if delayed_render else 0)
+    executor = DrawingExecutor(backend, profile)
+    paused, outcomes, errors = threading.Event(), [], []
+    def run():
+        try:
+            outcomes.append(executor.run(plan(), auto_pause=True,
+                            state=lambda value: paused.set() if value == "PAUSED" else None))
+        except Exception as exc:
+            errors.append(exc)
+    thread = threading.Thread(target=run)
+    thread.start()
+    try:
+        if not delayed_render:
+            assert paused.wait(3)
+            assert "след кисти" in executor.pause_reason
+            assert executor.completed == 0 and not executor.executed_indices and not backend.pressed
+            backend.enabled = True
+            executor.pause(False)
+        thread.join(3)
+        assert not thread.is_alive() and not errors and outcomes == ["finished"]
+        assert executor.completed == 1 and not backend.pressed
+        if delayed_render:
+            assert not paused.is_set() and backend.post_frames >= 3
+    finally:
+        executor.stop()
+        thread.join(2)
+
+
+def test_disconnect_between_screen_checks_replays_unconfirmed_tail(profile):
+    backend = PaintingBackend(profile.canvas)
+    executor = DrawingExecutor(backend, profile)
+    drawing = plan()
+    drawing.strokes = [Stroke(((.1, y), (.9, y)), (20, 20, 28), 3) for y in (.2, .4, .6, .8)]
+    paused, outcomes, errors = threading.Event(), [], []
+    def progress(done, *_):
+        if not paused.is_set():
+            backend.enabled = False
+            executor._next_ink_check = 0 if done == 3 else time.monotonic()+10
+    def run():
+        try:
+            outcomes.append(executor.run(drawing, progress=progress, auto_pause=True,
+                            state=lambda value: paused.set() if value == "PAUSED" else None))
+        except Exception as exc:
+            errors.append(exc)
+    thread = threading.Thread(target=run)
+    thread.start()
+    try:
+        assert paused.wait(3)
+        assert executor.completed == 1 and executor.executed_indices == [0]
+        backend.enabled = True
+        executor.pause(False)
+        thread.join(3)
+        assert not thread.is_alive() and not errors and outcomes == ["finished"]
+        assert executor.executed_indices == [0, 1, 2, 3]
+        for stroke in drawing.strokes:
+            midpoint = profile.canvas.map((.5, stroke.points[0][1]), 2.5)
+            assert backend.image.getpixel(midpoint) == (20, 20, 28)
+    finally:
+        executor.stop()
+        thread.join(2)
 
 
 def test_uncalibrated_colors_sizes_and_changed_canvas_refused(profile):

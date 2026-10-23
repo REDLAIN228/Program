@@ -1,5 +1,6 @@
 import time
 import numpy as np
+import pytest
 
 from PIL import Image, ImageDraw
 from PySide6.QtWidgets import QMessageBox, QInputDialog, QFileDialog
@@ -8,6 +9,50 @@ from app.models import Plan, Rect, Stroke, Timing
 from app.storage import Store
 from app.ui.panel import MainWindow
 from app.ui.test_canvas import COLORS
+
+
+@pytest.mark.parametrize("compatible", [True, False])
+@pytest.mark.parametrize("old_closed", [True, False])
+def test_auto_pause_resume_rebinds_only_compatible_restored_window(qapp, tmp_path, monkeypatch, profile, compatible, old_closed):
+    from app.automation import DrawingExecutor, SafetyError, WindowState
+    class Backend:
+        def up(self): pass
+        def snapshot(self):
+            return WindowState(999, "Restored", "TestClass", "test.exe", Rect(100, 100, 400, 400),
+                               96 if compatible else 144)
+    backend = Backend()
+    activated, selected = [], []
+    def get_target(self):
+        if old_closed:
+            raise SafetyError("Старое окно закрыто")
+        return backend.snapshot()
+    def choose_target(self):
+        selected.append(True)
+        return backend.snapshot()
+    monkeypatch.setattr(MainWindow, "start_hotkeys", lambda self: None)
+    monkeypatch.setattr(MainWindow, "_get_target", get_target)
+    monkeypatch.setattr(MainWindow, "_choose_target", choose_target)
+    monkeypatch.setattr(MainWindow, "_backend", lambda self: backend)
+    monkeypatch.setattr(MainWindow, "_activate_target", lambda self: activated.append(True))
+    panel = MainWindow(Store(tmp_path/"data"))
+    panel.executor = DrawingExecutor(backend, profile)
+    panel.executor.pause()
+    panel.executor.pause_reason = "Сервер отключился"
+    panel.set_state("PAUSED")
+    panel.auto_pause_notice(panel.executor.pause_reason)
+    assert "F8" in panel.log.toPlainText() and "RESUME" in panel.pause_button.text()
+    panel.pause()
+    assert panel.executor.pause_event.is_set() is not compatible
+    assert bool(activated) == compatible
+    assert bool(selected) == old_closed
+    if compatible:
+        assert panel.executor._session.handle == 999
+    else:
+        assert panel._state == "PAUSED" and "профилю" in panel.log.toPlainText()
+    panel.executor = None
+    panel._clock_timer.stop()
+    panel.icon.close()
+    panel.hide()
 
 
 def wait_until(qapp, predicate, limit=15):

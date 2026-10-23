@@ -33,6 +33,7 @@ from app.ui.intelligence import StudioActions
 class DrawJob(Job):
     stats = Signal(int, int, float, float)
     state = Signal(str)
+    notice = Signal(str)
 
 
 class DebugOverlay(QWidget):
@@ -342,6 +343,13 @@ class MainWindow(StudioActions, QMainWindow):
         self.pause_button.setText("RESUME · F8" if state == "PAUSED" else "PAUSE · F8")
         if state == "PAUSED":
             self.icon.show()
+
+    def auto_pause_notice(self, reason):
+        if self.executor and self._active_plan:
+            self.progress.setValue(round(100*len(self.executor.executed_indices)/max(1, len(self._active_plan.strokes))))
+        self.log.setText("Автопауза: "+reason+"\nПрогресс сохранён в открытой программе. "
+                         "Вернитесь к тому же холсту и нажмите RESUME / F8. "
+                         "Незавершённый штрих будет повторён. STOP / F9 завершает рисование.")
 
     def error(self, message):
         self.set_state("ERROR")
@@ -1135,12 +1143,13 @@ class MainWindow(StudioActions, QMainWindow):
                     raise SafetyError("Холст уже закрашен или не белый. Очистите его в игре перед TEST DRAW / RUN. "
                                       "Белые области плана рассчитаны на пустой белый фон.")
                 outcome = executor.run(plan, job.stats.emit, job.state.emit, limit, not test,
-                                       deadline=self._draw_deadline, clock_origin=self._begin_timestamp)
+                                       deadline=self._draw_deadline, clock_origin=self._begin_timestamp,
+                                       auto_pause=True, notice=job.notice.emit)
                 if test:
                     after = None
                     if outcome == "finished":
                         executor.park_pointer(plan)
-                        after = self._capture_bridge.call(lambda: self._screenshot(target))
+                        after = self._capture_bridge.call(lambda: self._screenshot(executor.backend.snapshot()))
                     return outcome, snapshot, after
                 if not test:
                     actual = replace(plan, strokes=[plan.strokes[i] for i in executor.executed_indices])
@@ -1149,6 +1158,7 @@ class MainWindow(StudioActions, QMainWindow):
             job = DrawJob(execute, self)
             job.stats.connect(self.live_stats)
             job.state.connect(self.set_state)
+            job.notice.connect(self.auto_pause_notice)
             if test:
                 done = lambda result: self._test_finished(result[0], result[1], plan, result[2])
             else:
@@ -1238,9 +1248,19 @@ class MainWindow(StudioActions, QMainWindow):
             paused = not self.executor.pause_event.is_set()
             if not paused:
                 try:
+                    if self.executor.pause_reason:
+                        try:
+                            target = self._get_target()
+                        except SafetyError:
+                            target = self._choose_target()
+                        if target is None:
+                            return
+                        self.executor.rebind_target(self._backend())
                     self._activate_target()
                 except Exception as exc:
-                    self.error(str(exc))
+                    self.set_state("PAUSED")
+                    self.auto_pause_notice(str(exc))
+                    self.showNormal()
                     return
             self.executor.pause(paused)
 

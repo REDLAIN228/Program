@@ -61,6 +61,7 @@ if os.name == "nt":
     user32.IsWindow.argtypes = [wintypes.HWND]
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
     user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.IsHungAppWindow.argtypes = [wintypes.HWND]
     user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
@@ -162,6 +163,19 @@ class Win32Backend:
 
     def is_foreground(self):
         return user32.GetForegroundWindow() == self.hwnd
+
+    def unavailable_reason(self):
+        return "Roblox не отвечает. Дождитесь восстановления игры." if user32.IsHungAppWindow(self.hwnd) else ""
+
+    def capture_region(self, region):
+        import mss
+        from PIL import Image
+        try:
+            with mss.mss() as capture:
+                shot = capture.grab(dict(left=region.x, top=region.y, width=region.width, height=region.height))
+                return Image.frombytes("RGB", shot.size, shot.rgb)
+        except (OSError, mss.exception.ScreenShotError) as exc:
+            raise SafetyError("Не удалось проверить след кисти на экране") from exc
 
     def point_belongs_to_target(self, x, y):
         hwnd = user32.WindowFromPoint(wintypes.POINT(x, y))

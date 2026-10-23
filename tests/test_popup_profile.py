@@ -1,5 +1,6 @@
 from dataclasses import replace
 from pathlib import Path
+import threading
 import time
 
 import pytest
@@ -201,6 +202,32 @@ def test_ambiguous_empty_field_does_not_block_typing_and_enter():
     assert executor.run(plan(), require_verified=False) == "finished"
     assert backend.edits and backend.drawing == [(s.color, s.width) for s in plan().strokes]
     assert not backend.pressed
+
+
+def test_dimmed_disconnect_overlay_pauses_before_paint_even_with_readable_size():
+    p = popup_screenshot_profile(state())
+    backend = PopupBackend(p)
+    backend.capture_region = lambda r: Image.new("RGB", (r.width, r.height), (120, 120, 120))
+    executor = DrawingExecutor(backend, p)
+    paused, outcomes, errors = threading.Event(), [], []
+    def run():
+        try:
+            outcomes.append(executor.run(plan(), require_verified=False, auto_pause=True,
+                            state=lambda value: paused.set() if value == "PAUSED" else None))
+        except Exception as exc:
+            errors.append(exc)
+    thread = threading.Thread(target=run)
+    thread.start()
+    try:
+        assert paused.wait(2)
+        assert "затемнена" in executor.pause_reason
+        assert not backend.drawing and not backend.pressed and executor.completed == 0
+        executor.stop()
+        thread.join(2)
+        assert not errors and outcomes == ["stopped"] and not thread.is_alive()
+    finally:
+        executor.stop()
+        thread.join(2)
 
 
 @pytest.mark.parametrize("ignore_enter", [False, True])

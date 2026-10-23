@@ -70,6 +70,10 @@ class DrawingExecutor:
         self._latency = 1.
         self._control_log = []
         self._observed_color = None
+        self.pause_reason = ""
+        self._auto_pause = False
+        self._next_ink_check = 0.
+        self._ink_checkpoint = 0
         self._popup = None
         if profile.popup_controls:
             from app.popup_controls import PopupController
@@ -154,6 +158,19 @@ class DrawingExecutor:
                 self.clock.resume()
             self.pause_event.clear()
 
+    def rebind_target(self, backend):
+        """User-requested resume may select a restarted game, never silently."""
+        if not self.pause_event.is_set():
+            raise SafetyError("Выбрать восстановленное окно можно только на паузе")
+        state = backend.snapshot()
+        p = self.profile
+        if ((state.client.width, state.client.height) != p.client_size or state.dpi != p.dpi
+                or state.window_class != p.target_class or state.process.casefold() != p.target_process.casefold()):
+            raise SafetyError("Восстановленное окно не соответствует профилю. Верните прежний размер окна и DPI.")
+        self.backend = backend
+        self._session = state
+        self._pointer = None
+
     def _guard(self) -> WindowState:
         if self.stop_event.is_set():
             raise InterruptedError("Рисование остановлено")
@@ -170,6 +187,11 @@ class DrawingExecutor:
             raise SafetyError("Окно перемещено, изменено или закрыто. Рисование остановлено.")
         if not self.backend.is_foreground():
             raise SafetyError("Потерян фокус целевого окна. Рисование остановлено.")
+        unavailable = getattr(self.backend, "unavailable_reason", None)
+        if unavailable:
+            reason = unavailable()
+            if reason:
+                raise SafetyError(reason)
         return state
 
     def _wait(self, seconds: float) -> None:
@@ -553,14 +575,18 @@ class DrawingExecutor:
 
     def run(self, plan: Plan, progress=lambda *_: None, state=lambda *_: None,
             time_limit: float | None = None, require_verified: bool = True,
-            deadline: float | None = None, clock_origin: float | None = None) -> str:
+            deadline: float | None = None, clock_origin: float | None = None,
+            *, auto_pause: bool = False, notice=lambda *_: None) -> str:
         if self.stop_event.is_set():
             self._release()
             state("IDLE")
             return "stopped"
         self.validate_plan(plan, require_verified)
         self._deadline = None
-        self._session = self._guard()
+        self._auto_pause = auto_pause
+        self.pause_reason = ""
+        self._next_ink_check = 0.
+        self._ink_checkpoint = self.completed
         self._color = self._width = None
         self._opacity = None
         self._controls_ready = False
@@ -591,94 +617,119 @@ class DrawingExecutor:
         measured_actual = measured_prediction = 0.
         self.executed_indices, self.skipped_indices = [], []
         pause_seconds = 0.
+        anchors_checked = False
         try:
-            if not self.profile.color_tab:
-                for anchor in self.profile.anchors:
-                    self._check_anchor(anchor)
             state("DRAWING")
             while self.completed < len(plan.strokes):
-                if self.pause_event.is_set() or self._interrupted.is_set():
-                    self._release()
-                    state("PAUSED")
-                    pause_start = time.monotonic()
-                    if self.pause_event.is_set():
-                        self.clock.pause()
-                    while self.pause_event.is_set():
-                        if self._deadline is not None and time.monotonic() >= self._deadline:
-                            raise DeadlineReached("Лимит раунда истёк во время паузы")
-                        if self.stop_event.wait(.025):
-                            raise InterruptedError("Рисование остановлено")
-                    pause_seconds += time.monotonic() - pause_start
-                    self.clock.resume()
-                    self._interrupted.clear()
-                    # Never steal focus back on resume.
-                    self._guard()
-                    self._color = self._width = None
-                    self._opacity = None
-                    self._controls_ready = False
-                    self._last_hue = None
-                    self._tool_selected = False
-                    state("DRAWING")
-                elapsed = time.monotonic() - started  # Round timer continues during pause.
-                if self._deadline is not None and time.monotonic() >= self._deadline:
-                    raise DeadlineReached("Достигнут лимит раунда. Рисование остановлено.")
-                stroke = plan.strokes[self.completed]
-                fill_key = (stroke.color, stroke.component_id) if stroke.priority == 1 else None
-                if fill_key in skipped_fills:
-                    future_skipped_price -= prices[self.completed]
-                    self.skipped_indices.append(self.completed)
-                    self.completed += 1
-                    continue
-                previous = plan.strokes[self.executed_indices[-1]] if self.executed_indices else None
-                if previous is not None and (self._color != previous.color or self._width != previous.width):
-                    previous = None  # Resume resets the tool cache; include selection again.
-                current_price = transition_cost(plan, stroke, previous)
-                if plan.smart_finish and self._deadline is not None:
-                    available = self._deadline-time.monotonic()-plan.safety_buffer
-                    predicted = current_price*observed_factor
-                    low_priority = (stroke.priority != 1 and
-                                    (stroke.importance < 35 or (stroke.priority >= 2 and stroke.importance < 65)))
-                    remaining_price = max(0., suffix[self.completed]-future_skipped_price)*observed_factor
-                    if fill_key is not None and fill_key not in started_fills:
-                        whole_fill = (fill_prices[fill_key]+max(0, current_price-prices[self.completed]))*observed_factor
-                        secondary = fill_scores[fill_key] < 65
-                        if available < whole_fill or (secondary and available < remaining_price):
+                try:
+                    if self.pause_event.is_set() or self._interrupted.is_set():
+                        state("PAUSED")
+                        pause_start = time.monotonic()
+                        if self.pause_event.is_set():
+                            self.clock.pause()
+                        while self.pause_event.is_set():
+                            if self._deadline is not None and time.monotonic() >= self._deadline:
+                                raise DeadlineReached("Лимит раунда истёк во время паузы")
+                            if self.stop_event.wait(.025):
+                                raise InterruptedError("Рисование остановлено")
+                        pause_seconds += time.monotonic() - pause_start
+                        self.clock.resume()
+                        self._interrupted.clear()
+                        # Never steal focus back on resume.
+                        self._guard()
+                        self._color = self._width = None
+                        self._opacity = None
+                        self._controls_ready = False
+                        self._last_hue = None
+                        self._tool_selected = False
+                        self.pause_reason = ""
+                        self._next_ink_check = 0.
+                        anchors_checked = False
+                        if self._popup:
+                            self._popup._known_state = None
+                        state("DRAWING")
+                    if self._session is None:
+                        self._session = self._guard()
+                    if not anchors_checked:
+                        if not self.profile.color_tab:
+                            for anchor in self.profile.anchors:
+                                self._check_anchor(anchor)
+                        anchors_checked = True
+                    elapsed = time.monotonic() - started  # Round timer continues during pause.
+                    if self._deadline is not None and time.monotonic() >= self._deadline:
+                        raise DeadlineReached("Достигнут лимит раунда. Рисование остановлено.")
+                    stroke = plan.strokes[self.completed]
+                    fill_key = (stroke.color, stroke.component_id) if stroke.priority == 1 else None
+                    if fill_key in skipped_fills:
+                        future_skipped_price -= prices[self.completed]
+                        self.skipped_indices.append(self.completed)
+                        self.completed += 1
+                        continue
+                    previous = plan.strokes[self.executed_indices[-1]] if self.executed_indices else None
+                    if previous is not None and (self._color != previous.color or self._width != previous.width):
+                        previous = None  # Resume resets the tool cache; include selection again.
+                    current_price = transition_cost(plan, stroke, previous)
+                    if plan.smart_finish and self._deadline is not None:
+                        available = self._deadline-time.monotonic()-plan.safety_buffer
+                        predicted = current_price*observed_factor
+                        low_priority = (stroke.priority != 1 and
+                                        (stroke.importance < 35 or (stroke.priority >= 2 and stroke.importance < 65)))
+                        remaining_price = max(0., suffix[self.completed]-future_skipped_price)*observed_factor
+                        if fill_key is not None and fill_key not in started_fills:
+                            whole_fill = (fill_prices[fill_key]+max(0, current_price-prices[self.completed]))*observed_factor
+                            secondary = fill_scores[fill_key] < 65
+                            if available < whole_fill or (secondary and available < remaining_price):
+                                state("SMART FINISH")
+                                if secondary:
+                                    skipped_fills.add(fill_key)
+                                    future_skipped_price += fill_prices[fill_key]-prices[self.completed]
+                                    self.skipped_indices.append(self.completed)
+                                    self.completed += 1
+                                    continue
+                                state("TIME LIMIT")
+                                return "deadline"
+                        if available < predicted or (low_priority and available < remaining_price):
                             state("SMART FINISH")
-                            if secondary:
-                                skipped_fills.add(fill_key)
-                                future_skipped_price += fill_prices[fill_key]-prices[self.completed]
+                            if low_priority:
                                 self.skipped_indices.append(self.completed)
                                 self.completed += 1
                                 continue
                             state("TIME LIMIT")
                             return "deadline"
-                    if available < predicted or (low_priority and available < remaining_price):
-                        state("SMART FINISH")
-                        if low_priority:
-                            self.skipped_indices.append(self.completed)
-                            self.completed += 1
-                            continue
-                        state("TIME LIMIT")
-                        return "deadline"
-                stroke_started = time.monotonic()
-                if fill_key is not None:
-                    started_fills.add(fill_key)  # A paused partial fill must be replayed, never silently dropped.
-                try:
-                    self._execute(stroke, plan, started, time_limit)
-                except _Paused:
-                    self._release()
-                    continue
-                duration = time.monotonic()-stroke_started
-                self.executed_indices.append(self.completed)
-                measured_actual += duration
-                measured_prediction += current_price/plan.time_factor
-                if current_price > .05:
-                    ratio = max(.25, min(4., duration/current_price))
-                    observed_factor = .8*observed_factor+.2*ratio
-                self.completed += 1
-                elapsed = time.monotonic()-started
-                progress(len(self.executed_indices), len(plan.strokes), elapsed,
-                         suffix[self.completed]*observed_factor)
+                    stroke_started = time.monotonic()
+                    if fill_key is not None:
+                        started_fills.add(fill_key)  # A paused partial fill must be replayed, never silently dropped.
+                    try:
+                        self._execute(stroke, plan, started, time_limit)
+                    except _Paused:
+                        self._release()
+                        continue
+                    duration = time.monotonic()-stroke_started
+                    self.executed_indices.append(self.completed)
+                    measured_actual += duration
+                    measured_prediction += current_price/plan.time_factor
+                    if current_price > .05:
+                        ratio = max(.25, min(4., duration/current_price))
+                        observed_factor = .8*observed_factor+.2*ratio
+                    self.completed += 1
+                    elapsed = time.monotonic()-started
+                    progress(len(self.executed_indices), len(plan.strokes), elapsed,
+                             suffix[self.completed]*observed_factor)
+                except DeadlineReached:
+                    raise
+                except SafetyError as exc:
+                    if not auto_pause:
+                        raise
+                    future_skipped_price = sum(prices[i] for i in range(self.completed, len(plan.strokes))
+                                               if plan.strokes[i].priority == 1
+                                               and (plan.strokes[i].color, plan.strokes[i].component_id) in skipped_fills)
+                    self.pause_reason = str(exc)
+                    try:
+                        self.pause()
+                    except SafetyError as release_error:
+                        self.pause_reason += " " + str(release_error)
+                    notice(self.pause_reason)
+                    state("PAUSED")
             state("FINISHED" if not self.skipped_indices else "FINISHED PARTIAL")
             return "finished" if not self.skipped_indices else "partial"
         except DeadlineReached:
@@ -836,6 +887,59 @@ class DrawingExecutor:
             self._move(*end)
             self._wait(plan.timing.pen_refresh)
 
+    def _ink_probe(self, points, stroke, canvas, plan):
+        capture = getattr(self.backend, "capture_region", None)
+        if not self._auto_pause or capture is None or time.monotonic() < self._next_ink_check:
+            return None
+        self._next_ink_check = time.monotonic()+1.
+        # A Roblox disconnect overlay can cover/dim the canvas while it keeps
+        # the same HWND. Confirm a live drawing control even when the planned
+        # stroke would match the dark overlay or already existing pixels.
+        if self._popup:
+            r = self.profile.popup_controls.brush_readout
+            origin = self._session.client
+            readout = Rect(origin.x+r.x, origin.y+r.y, r.width, r.height)
+            for attempt in range(3):
+                self._guard()
+                image = capture(readout).convert("RGB")
+                # This screenshot preset has a white numeric TextBox. Roblox
+                # modal shading makes it dark while its digits can remain OCR-readable.
+                white = sum(min(pixel) >= 200 for pixel in image.getdata())
+                if white >= image.width*image.height*.6:
+                    break
+                if attempt == 2:
+                    raise SafetyError("Панель кисти скрыта или затемнена. Закройте меню / восстановите игру и нажмите F8.")
+                self._wait(max(.12, plan.timing.game_delay))
+            actual = self._popup.read_width(plan)
+            if actual != stroke.width:
+                raise SafetyError("Размер кисти изменился или панель рисования недоступна. Проверьте игру и нажмите F8.")
+        elif self.profile.brush_slider and self.profile.brush_slider.readout:
+            if self._read_brush(stroke.width, plan) != stroke.width:
+                raise SafetyError("Размер кисти не соответствует штриху. Проверьте игру и нажмите F8.")
+        from app.draw_feedback import InkProbe
+        return InkProbe.capture(capture, points, stroke.color, stroke.width, stroke.opacity, canvas)
+
+    def _confirm_ink(self, probe, plan):
+        if probe is None:
+            return
+        # Input can precede rendering. A single unchanged screenshot is not a failure.
+        for attempt in range(4):
+            self._guard()
+            if probe.visible(self.backend.capture_region(probe.region)):
+                self._ink_checkpoint = self.completed+1
+                return
+            if attempt < 3:
+                self._wait(max(.12, plan.timing.game_delay))
+        raise SafetyError("На холсте не появился ожидаемый след кисти. Возможно, сервер отключился, "
+                          "открыто меню или игра не принимает ввод. Восстановите игру и тот же холст, затем нажмите F8.")
+
+    def _rollback_unconfirmed_ink(self):
+        # Check screen feedback periodically, then retry the unconfirmed tail
+        # if a disconnect swallowed strokes between two screen checks.
+        self.completed = min(self.completed, self._ink_checkpoint)
+        self.executed_indices = [i for i in self.executed_indices if i < self.completed]
+        self.skipped_indices = [i for i in self.skipped_indices if i < self.completed]
+
     def _execute(self, stroke: Stroke, plan: Plan, started: float,
                  time_limit: float | None) -> None:
         if self._popup:
@@ -852,6 +956,15 @@ class DrawingExecutor:
         else:
             self._travel(*points[0], plan)
         self._guard()
+        screen_canvas = Rect(canvas.x+self._session.client.x, canvas.y+self._session.client.y,
+                             canvas.width, canvas.height)
+        try:
+            probe = self._ink_probe(points, stroke, screen_canvas, plan)
+        except DeadlineReached:
+            raise
+        except SafetyError:
+            self._rollback_unconfirmed_ink()
+            raise
         try:
             self._pen_started = time.monotonic()
             self._press(kind="stroke")
@@ -878,6 +991,13 @@ class DrawingExecutor:
                 self._pen_started = None
         if feedback:
             self._wait(plan.timing.pen_release*self._latency)
+        try:
+            self._confirm_ink(probe, plan)
+        except DeadlineReached:
+            raise
+        except SafetyError:
+            self._rollback_unconfirmed_ink()
+            raise
 
     def _prepare_controls(self, stroke, plan):
         color_changed = self._color != stroke.color
