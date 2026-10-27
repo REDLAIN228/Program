@@ -1,23 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="350" viewBox="0 0 1280 350" role="img" aria-label="REDLAIN / DEVLOG — building, breaking, learning">
-<defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#070B16"/><stop offset="1" stop-color="#13224A"/></linearGradient>
-  <radialGradient id="spot"><stop stop-color="#244EFF" stop-opacity=".35"/><stop offset="1" stop-color="#244EFF" stop-opacity="0"/></radialGradient>
-  <pattern id="dots" width="29" height="29" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#9CB2FF" opacity=".19"/></pattern>
-</defs>
-<rect width="1280" height="350" fill="url(#bg)" rx="26"/>
-<rect width="1280" height="350" fill="url(#dots)" rx="26"/>
-<ellipse cx="1095" cy="142" rx="305" ry="270" fill="url(#spot)"/>
-<rect x="64" y="46" width="171" height="33" rx="16.5" fill="#1D2D69" stroke="#4968EC"/><circle cx="85" cy="62" r="5" fill="#83A2FF"/>
-<text x="102" y="68" fill="#DAE2FF" font-family="Arial, sans-serif" font-size="14" font-weight="bold" letter-spacing="2.4">HELLO, WORLD</text>
-<text x="62" y="170" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="76" font-weight="bold" letter-spacing="6">REDLAIN</text>
-<text x="65" y="215" fill="#90A7FF" font-family="Arial, sans-serif" font-size="31" font-weight="bold" letter-spacing="5">/ DEVLOG</text>
-<text x="66" y="281" fill="#C6D1EA" font-family="Arial, sans-serif" font-size="20">Roblox  ·  AI  ·  Creative coding  ·  Life</text>
-<g transform="translate(1055 167)">
-  <circle r="119" fill="none" stroke="#5977F8" stroke-width="2" stroke-dasharray="7 11"/>
-  <circle r="94" fill="#0821B4" stroke="#7189FF" stroke-width="4"/>
-  <circle r="69" fill="#123CEF"/>
-  <path d="M-31 -34H6C35 -34 46 -16 46 1C46 18 35 30 16 35L40 63H12L-8 38H-15V62H-31ZM-15 -16V19H7C19 19 25 11 25 1C25 -10 18 -16 5 -16Z" fill="#FFFFFF"/>
-  <circle cx="-90" cy="90" r="7" fill="#FFFFFF"/><circle cx="90" cy="-90" r="9" fill="#94AAFF"/>
-</g>
-<path d="M40 316H1240" stroke="#4D6DFF" stroke-width="2" stroke-opacity=".55"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-label="REDLAIN DEVLOG - Roblox, AI and creative coding">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#080D19"/><stop offset=".62" stop-color="#101A36"/><stop offset="1" stop-color="#0B1735"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#375BFA" stop-opacity=".34"/><stop offset="1" stop-color="#375BFA" stop-opacity="0"/></radialGradient>
+    <pattern id="grid" width="34" height="34" patternUnits="userSpaceOnUse"><path d="M34 0H0V34" fill="none" stroke="#B4C5FF" stroke-width=".6" stroke-opacity=".09"/></pattern>
+    <linearGradient id="ring" x1="0" x2="1" y1="1" y2="0"><stop stop-color="#3554C8"/><stop offset=".5" stop-color="#7B94FF"/><stop offset="1" stop-color="#F0ABC8"/></linearGradient>
+    <g id="blossom" fill="#F0B0CB"><ellipse cx="0" cy="-13" rx="7.2" ry="12" transform="rotate(0)"/><ellipse cx="0" cy="-13" rx="7.2" ry="12" transform="rotate(72)"/><ellipse cx="0" cy="-13" rx="7.2" ry="12" transform="rotate(144)"/><ellipse cx="0" cy="-13" rx="7.2" ry="12" transform="rotate(216)"/><ellipse cx="0" cy="-13" rx="7.2" ry="12" transform="rotate(288)"/><circle r="5" fill="#FFE5CC"/></g>
+  </defs>
+  <rect width="1280" height="360" rx="26" fill="url(#bg)"/>
+  <rect width="1280" height="360" rx="26" fill="url(#grid)"/>
+  <ellipse cx="1066" cy="181" rx="277" ry="229" fill="url(#glow)"/>
+  <rect x="67" y="42" width="172" height="35" rx="17.5" fill="#19285A" stroke="#5471EA" stroke-opacity=".7"/>
+  <circle cx="88" cy="59" r="5" fill="#A1B3FF"/>
+  <text x="106" y="65" fill="#DCE4FF" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="bold" letter-spacing="2">REDLAIN LAB</text>
+  <text x="62" y="168" fill="#F6F8FF" font-family="Arial,Helvetica,sans-serif" font-size="78" font-weight="bold" letter-spacing="5">REDLAIN</text>
+  <text x="67" y="216" fill="#91A8FF" font-family="Arial,Helvetica,sans-serif" font-size="30" font-weight="bold" letter-spacing="5">/ DEVLOG</text>
+  <text x="68" y="274" fill="#C0CAE0" font-family="Arial,Helvetica,sans-serif" font-size="19">Roblox development  /  AI experiments  /  Life</text>
+  <g transform="translate(1046 180)">
+    <circle r="111" fill="none" stroke="url(#ring)" stroke-width="5" stroke-linecap="round" stroke-dasharray="557 140" transform="rotate(-47)" opacity=".94"/>
+    <circle r="89" fill="#0B1D50" stroke="#4769E5" stroke-width="2" opacity=".9"/>
+    <circle r="67" fill="#1738CC"/>
+    <path d="M-31-35H7C38-35 50-17 50 1C50 19 38 31 17 35L44 64H13L-9 38H-16V63H-31ZM-16-16V18H8C20 18 27 11 27 1C27-10 20-16 6-16Z" fill="#FFFFFF"/>
+  </g>
+  <g stroke="#A3AEE3" stroke-width="3" fill="none" stroke-linecap="round" stroke-opacity=".65">
+    <path d="M1200 3Q1162 38 1154 98Q1145 123 1108 145"/>
+    <path d="M1154 98Q1207 84 1237 109"/>
+    <path d="M1168 58Q1137 42 1125 30"/>
+  </g>
+  <use href="#blossom" transform="translate(1151 95) scale(.7)"/>
+  <use href="#blossom" transform="translate(1213 95) scale(.54)"/>
+  <use href="#blossom" transform="translate(1121 133) scale(.45)"/>
+  <g fill="#F0B0CB" opacity=".65"><ellipse cx="1184" cy="178" rx="5" ry="9" transform="rotate(21 1184 178)"/><ellipse cx="1218" cy="194" rx="4" ry="8" transform="rotate(-25 1218 194)"/></g>
+  <path d="M64 314H1216" stroke="#4E6EFF" stroke-width="1.6" stroke-opacity=".5"/>
+  <text x="1216" y="339" text-anchor="end" fill="#738AB8" font-family="Arial,Helvetica,sans-serif" font-size="12" letter-spacing="2">BUILD  ·  BREAK  ·  LEARN  ·  REPEAT</text>
 </svg>
