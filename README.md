@@ -1,5 +1,7 @@
 # REDLAIN DRAW ENGINE 3.0
 
+**Передача в Claude Code:** [как открыть проект и что вставить](OPEN_IN_CLAUDE_RU.md) · [контекст и оставшиеся задачи](docs/CLAUDE_HANDOFF_RU.md) · [точный промпт следующего этапа](docs/CLAUDE_TASK_RU.md). Новый анимированный ассистент и следующий UI описаны как предстоящая работа.
+
 **[Пошаговая инструкция 3.0](V3_GUIDE_RU.md)** · **[тесты и измеренная скорость](docs/V3_VALIDATION_RU.md)** · **[изменения и ограничения](docs/V3_REPORT_RU.md)** · **[проверка в Roblox на Windows](docs/WINDOWS_ROBLOX_TEST_RU.md)**
 
 Существующий Anime Drawer модернизирован на прежнем PySide6: Human 3.0 рисует семью виртуальными художественными этапами, сохраняет контрольные точки на диск и продолжает точный оставшийся план после перезапуска. Новый интерфейс включает Workspace, LIVE ART CORE, Projects, Smart Canvas Fill и реальный поиск Wikimedia Commons. Legacy, Vector 2.0, профили RGB/HSV, локальный холст и необязательная AI-генерация сохранены.
