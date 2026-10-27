@@ -1,0 +1,269 @@
+{
+  "scope": "Free RGB palette, brushes 2/6/16 px; planned Preview vs prepared source",
+  "cases": {
+    "portrait-512 FAST": {
+      "before": {
+        "strokes": 396,
+        "colors": 9,
+        "points": 22558,
+        "planning_seconds": 7.55,
+        "estimate_turbo7_seconds": 1557.4,
+        "pixel_agreement": 0.9677,
+        "important_agreement": 0.5174,
+        "edge_distance_mean": 4.356
+      },
+      "after": {
+        "strokes": 364,
+        "colors": 8,
+        "points": 20839,
+        "planning_seconds": 6.49,
+        "estimate_turbo7_seconds": 1520.5,
+        "pixel_agreement": 0.9736,
+        "important_agreement": 0.5155,
+        "edge_distance_mean": 2.594
+      }
+    },
+    "portrait-512 BALANCED": {
+      "before": {
+        "strokes": 1032,
+        "colors": 17,
+        "points": 38498,
+        "planning_seconds": 14.2,
+        "estimate_turbo7_seconds": 2834.8,
+        "pixel_agreement": 0.9717,
+        "important_agreement": 0.4695,
+        "edge_distance_mean": 1.626
+      },
+      "after": {
+        "strokes": 825,
+        "colors": 10,
+        "points": 38935,
+        "planning_seconds": 13.5,
+        "estimate_turbo7_seconds": 2565.8,
+        "pixel_agreement": 0.9757,
+        "important_agreement": 0.506,
+        "edge_distance_mean": 1.527
+      }
+    },
+    "portrait-512 MASTERPIECE": {
+      "before": {
+        "strokes": 4786,
+        "colors": 54,
+        "points": 58605,
+        "planning_seconds": 29.51,
+        "estimate_turbo7_seconds": 8567.7,
+        "pixel_agreement": 0.9708,
+        "important_agreement": 0.4375,
+        "edge_distance_mean": 1.461
+      },
+      "after": {
+        "strokes": 2969,
+        "colors": 31,
+        "points": 49745,
+        "planning_seconds": 22.84,
+        "estimate_turbo7_seconds": 5786.6,
+        "pixel_agreement": 0.9777,
+        "important_agreement": 0.5377,
+        "edge_distance_mean": 0.911
+      }
+    },
+    "portrait-256 FAST": {
+      "before": {
+        "strokes": 212,
+        "colors": 9,
+        "points": 7187,
+        "planning_seconds": 2.97,
+        "estimate_turbo7_seconds": 684.7,
+        "pixel_agreement": 0.9286,
+        "important_agreement": 0.4116,
+        "edge_distance_mean": 1.744
+      },
+      "after": {
+        "strokes": 256,
+        "colors": 7,
+        "points": 8326,
+        "planning_seconds": 2.93,
+        "estimate_turbo7_seconds": 785.6,
+        "pixel_agreement": 0.9456,
+        "important_agreement": 0.4295,
+        "edge_distance_mean": 1.23
+      }
+    },
+    "portrait-256 BALANCED": {
+      "before": {
+        "strokes": 485,
+        "colors": 16,
+        "points": 9994,
+        "planning_seconds": 4.32,
+        "estimate_turbo7_seconds": 1186.5,
+        "pixel_agreement": 0.9376,
+        "important_agreement": 0.4843,
+        "edge_distance_mean": 1.545
+      },
+      "after": {
+        "strokes": 430,
+        "colors": 12,
+        "points": 10157,
+        "planning_seconds": 3.89,
+        "estimate_turbo7_seconds": 1098.8,
+        "pixel_agreement": 0.9504,
+        "important_agreement": 0.5257,
+        "edge_distance_mean": 1.029
+      }
+    },
+    "portrait-256 MASTERPIECE": {
+      "before": {
+        "strokes": 2954,
+        "colors": 52,
+        "points": 18302,
+        "planning_seconds": 10.83,
+        "estimate_turbo7_seconds": 4855.6,
+        "pixel_agreement": 0.9378,
+        "important_agreement": 0.4236,
+        "edge_distance_mean": 1.15
+      },
+      "after": {
+        "strokes": 2091,
+        "colors": 31,
+        "points": 16500,
+        "planning_seconds": 7.93,
+        "estimate_turbo7_seconds": 3543.8,
+        "pixel_agreement": 0.9456,
+        "important_agreement": 0.4843,
+        "edge_distance_mean": 0.941
+      }
+    },
+    "landscape-256 FAST": {
+      "before": {
+        "strokes": 88,
+        "colors": 11,
+        "points": 5509,
+        "planning_seconds": 1.7,
+        "estimate_turbo7_seconds": 614.3,
+        "pixel_agreement": 0.9407,
+        "important_agreement": 0.5341,
+        "edge_distance_mean": 15.733
+      },
+      "after": {
+        "strokes": 88,
+        "colors": 11,
+        "points": 5509,
+        "planning_seconds": 1.62,
+        "estimate_turbo7_seconds": 614.3,
+        "pixel_agreement": 0.9407,
+        "important_agreement": 0.5341,
+        "edge_distance_mean": 15.733
+      }
+    },
+    "landscape-256 BALANCED": {
+      "before": {
+        "strokes": 290,
+        "colors": 22,
+        "points": 9227,
+        "planning_seconds": 2.68,
+        "estimate_turbo7_seconds": 1088.8,
+        "pixel_agreement": 0.9589,
+        "important_agreement": 0.4736,
+        "edge_distance_mean": 14.646
+      },
+      "after": {
+        "strokes": 204,
+        "colors": 19,
+        "points": 5300,
+        "planning_seconds": 1.77,
+        "estimate_turbo7_seconds": 805.0,
+        "pixel_agreement": 0.9644,
+        "important_agreement": 0.5936,
+        "edge_distance_mean": 15.494
+      }
+    },
+    "landscape-256 MASTERPIECE": {
+      "before": {
+        "strokes": 1292,
+        "colors": 61,
+        "points": 13320,
+        "planning_seconds": 5.89,
+        "estimate_turbo7_seconds": 2754.2,
+        "pixel_agreement": 0.9546,
+        "important_agreement": 0.4996,
+        "edge_distance_mean": 15.593
+      },
+      "after": {
+        "strokes": 1071,
+        "colors": 52,
+        "points": 9657,
+        "planning_seconds": 4.57,
+        "estimate_turbo7_seconds": 2314.0,
+        "pixel_agreement": 0.9583,
+        "important_agreement": 0.5587,
+        "edge_distance_mean": 16.504
+      }
+    },
+    "texture_text-256 FAST": {
+      "before": {
+        "strokes": 275,
+        "colors": 4,
+        "points": 3828,
+        "planning_seconds": 2.06,
+        "estimate_turbo7_seconds": 589.1,
+        "pixel_agreement": 0.7629,
+        "important_agreement": 0.1925,
+        "edge_distance_mean": 0.896
+      },
+      "after": {
+        "strokes": 275,
+        "colors": 4,
+        "points": 3828,
+        "planning_seconds": 1.86,
+        "estimate_turbo7_seconds": 589.1,
+        "pixel_agreement": 0.7629,
+        "important_agreement": 0.1925,
+        "edge_distance_mean": 0.896
+      }
+    },
+    "texture_text-256 BALANCED": {
+      "before": {
+        "strokes": 468,
+        "colors": 10,
+        "points": 5520,
+        "planning_seconds": 3.16,
+        "estimate_turbo7_seconds": 978.9,
+        "pixel_agreement": 0.8455,
+        "important_agreement": 0.4322,
+        "edge_distance_mean": 0.62
+      },
+      "after": {
+        "strokes": 468,
+        "colors": 10,
+        "points": 5520,
+        "planning_seconds": 3.07,
+        "estimate_turbo7_seconds": 978.9,
+        "pixel_agreement": 0.8455,
+        "important_agreement": 0.4322,
+        "edge_distance_mean": 0.62
+      }
+    },
+    "texture_text-256 MASTERPIECE": {
+      "before": {
+        "strokes": 2286,
+        "colors": 31,
+        "points": 14018,
+        "planning_seconds": 7.97,
+        "estimate_turbo7_seconds": 3801.5,
+        "pixel_agreement": 0.8427,
+        "important_agreement": 0.4294,
+        "edge_distance_mean": 0.871
+      },
+      "after": {
+        "strokes": 2286,
+        "colors": 31,
+        "points": 14018,
+        "planning_seconds": 7.61,
+        "estimate_turbo7_seconds": 3801.5,
+        "pixel_agreement": 0.8427,
+        "important_agreement": 0.4294,
+        "edge_distance_mean": 0.871
+      }
+    }
+  }
+}

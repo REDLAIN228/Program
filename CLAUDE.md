@@ -29,6 +29,17 @@
 
 На 3.0 подтверждены 261 автоматический тест на Linux/Qt offscreen, точное продолжение в новом Python-процессе и новом UI-контроллере. Измеренное ускорение Human FAST относительно Vector 2.0 — 2,38–2,86× на трёх маленьких локальных примерах. Это не обещание 10–20× и не замер Roblox. У landscape есть потеря точности краёв. Полноценный 3D-ассистент, анимированный фон и полная система анимаций окна ещё не реализованы.
 
+## Состояние 4.0 (этап выполнен поверх 3.0)
+
+Отчёт с аудитом функций, сырыми замерами и ограничениями: [docs/V4_REPORT_RU.md](docs/V4_REPORT_RU.md). Пользовательская инструкция: [V4_GUIDE_RU.md](V4_GUIDE_RU.md). Ключевое для следующей сессии:
+
+- `app/precise_wait.py`: исполнитель ждёт через `PreciseWaiter.pace()`. `threading.Event.wait` на Windows округляет короткие тайм-ауты до ~15,6 мс — не возвращай его в горячий путь. Контракт `DrawingExecutor._wait(seconds)` с одним аргументом используют тесты. `speed_calibration.TIMING_MODEL = 2`: калибровки 3.0 не включают быстрый сэмплинг.
+- `time.monotonic()` на Windows/Python 3.12 тикает раз в ~15,6 мс; дедлайны, урезанные до остатка, считаются достигнутыми без опроса часов.
+- `human.merge_close_colors` объединяет неразличимые оттенки (порог 18/12/7 для FAST/BALANCED/MASTERPIECE) только для свободной палитры.
+- UI: `app/ui/shell.py` переразмещает виджеты, созданные слоями `panel → studio → v3`. Логика по-прежнему читает эти атрибуты. Неразмещённые виджеты живут в скрытом `shell.holder`. Анимации — только через `app/ui/motion.py` (`Animator`: одна анимация на свойство; `WindowMotion`). Перед вводом — `MainWindow._ensure_hidden()`.
+- Декор: `backdrop.py` (перерисовываются только просветы между карточками, 20/10 к/с) и `assistant.py` (2.5D QPainter, 30/15/10 к/с). Он стоит, пока `motion.external_input` (DRAWING), и при скрытом или свёрнутом окне.
+- Проверки 4.0 (Windows): `tools/benchmark_v4.py`, `tools/effects_impact.py`, `tools/v4_visual_smoke.py`, `tools/wait_resolution.py`, `tools/guard_cost.py`, `tools/halo_check.py`.
+
 ## Основные команды
 
 Windows: `run.bat`, локальный холст — `run.bat --test-canvas`, EXE — `build.bat`. Результат: вся папка `dist\RedlainDrawEngine`, не один EXE.

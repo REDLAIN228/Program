@@ -56,6 +56,9 @@ def _url(url, hosts):
     return url
 
 
+USER_AGENT = "REDLAIN-DRAW-ENGINE/4.0 (desktop Commons art browser; https://github.com/REDLAIN228/Program)"
+
+
 class CommonsClient:
     _request_lock = threading.Lock()
     _last_request = 0.
@@ -68,7 +71,8 @@ class CommonsClient:
     def _client(self):
         return httpx.Client(timeout=httpx.Timeout(25, connect=10), follow_redirects=False,
                             transport=self.transport,
-                            headers={"User-Agent": "REDLAIN-DRAW-ENGINE/3.0 (desktop Commons art browser)",
+                            # Wikimedia's robot policy rejects (403) agents without contact info.
+                            headers={"User-Agent": USER_AGENT,
                                      "Accept": "application/json,image/*"})
 
     def search(self, query, offset=0, cancel=None):

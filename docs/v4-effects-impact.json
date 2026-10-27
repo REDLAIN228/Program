@@ -1,0 +1,102 @@
+{
+  "offscreen": {
+    "scope": "Same plan, same timing; SimGame in memory; Qt platform offscreen",
+    "strokes": 31,
+    "runs": {
+      "off": {
+        "outcome": "finished",
+        "seconds": 8.177,
+        "process_cpu_seconds": 0.125,
+        "background_frames": 2,
+        "background_ms": 3.905,
+        "assistant_frames": 0,
+        "assistant_ms": 0.0,
+        "ui_timer_late_p95_ms": 15.87,
+        "ui_timer_late_median_ms": 12.55
+      },
+      "forced": {
+        "outcome": "finished",
+        "seconds": 8.187,
+        "process_cpu_seconds": 1.234,
+        "background_frames": 131,
+        "background_ms": 3.374,
+        "assistant_frames": 104,
+        "assistant_ms": 2.046,
+        "ui_timer_late_p95_ms": 16.77,
+        "ui_timer_late_median_ms": 13.14
+      },
+      "normal": {
+        "outcome": "finished",
+        "seconds": 8.187,
+        "process_cpu_seconds": 0.031,
+        "background_frames": 2,
+        "background_ms": 4.542,
+        "assistant_frames": 1,
+        "assistant_ms": 2.313,
+        "ui_timer_late_p95_ms": 16.77,
+        "ui_timer_late_median_ms": 12.78
+      },
+      "off-repeat": {
+        "outcome": "finished",
+        "seconds": 8.186,
+        "process_cpu_seconds": 0.062,
+        "background_frames": 2,
+        "background_ms": 0.789,
+        "assistant_frames": 0,
+        "assistant_ms": 0.0,
+        "ui_timer_late_p95_ms": 16.01,
+        "ui_timer_late_median_ms": 12.9
+      }
+    }
+  },
+  "windows": {
+    "scope": "Same plan, same timing; SimGame in memory; Qt platform windows",
+    "strokes": 31,
+    "runs": {
+      "off": {
+        "outcome": "finished",
+        "seconds": 8.182,
+        "process_cpu_seconds": 0.172,
+        "background_frames": 2,
+        "background_ms": 3.529,
+        "assistant_frames": 0,
+        "assistant_ms": 0.0,
+        "ui_timer_late_p95_ms": 18.1,
+        "ui_timer_late_median_ms": 12.89
+      },
+      "forced": {
+        "outcome": "finished",
+        "seconds": 8.176,
+        "process_cpu_seconds": 1.359,
+        "background_frames": 131,
+        "background_ms": 3.569,
+        "assistant_frames": 104,
+        "assistant_ms": 2.049,
+        "ui_timer_late_p95_ms": 16.87,
+        "ui_timer_late_median_ms": 13.08
+      },
+      "normal": {
+        "outcome": "finished",
+        "seconds": 8.175,
+        "process_cpu_seconds": 0.188,
+        "background_frames": 2,
+        "background_ms": 3.662,
+        "assistant_frames": 1,
+        "assistant_ms": 1.863,
+        "ui_timer_late_p95_ms": 16.24,
+        "ui_timer_late_median_ms": 12.95
+      },
+      "off-repeat": {
+        "outcome": "finished",
+        "seconds": 8.181,
+        "process_cpu_seconds": 0.125,
+        "background_frames": 4,
+        "background_ms": 0.602,
+        "assistant_frames": 0,
+        "assistant_ms": 0.0,
+        "ui_timer_late_p95_ms": 16.79,
+        "ui_timer_late_median_ms": 12.82
+      }
+    }
+  }
+}

@@ -28,10 +28,9 @@ class V3Actions:
         self.human_mode.setEnabled(free and human)
         self.quality.setToolTip("Legacy / Vector 2.0 используют это качество. Human 3.0 управляется режимами FAST / BALANCED / MASTERPIECE.")
     def navigate_v3(self, name):
-        for index in range(self.navigation.count()):
-            if self.navigation.item(index).data(Qt.ItemDataRole.UserRole) == name:
-                self.navigation.setCurrentRow(index)
-                return
+        # 3.0 names (Workspace, Live Drawing, Projects…) map onto the 4.0 sections.
+        if hasattr(self, "shell"):
+            self.shell.navigate(name)
 
     def init_v3(self):
         from app.event_log import EventJournal
@@ -117,6 +116,7 @@ class V3Actions:
         self.writer().submit("create", project_id, self._project_title, source.copy(), processed.copy(), preview.copy(),
                              plan, self.profile, self.project_options())
         self.project_status.setText("Saving project…")
+        self._save_feedback("pending")
         return project_id
 
     def save_project(self):
@@ -128,6 +128,7 @@ class V3Actions:
             else:
                 state = self._project_last_state or dict(cursor=0, executed=[], skipped=[], status="ready", metrics={}, controls={})
                 self.writer().submit("save_checkpoint", project_id, state)
+                self._save_feedback("pending")
         except Exception as exc:
             self.project_failed(str(exc))
 
@@ -163,6 +164,9 @@ class V3Actions:
             if data.get("checkpoint") is not None:
                 saved_cursor = data["checkpoint"]["cursor"]
                 self.project_status.setText(f"Saved · {saved_cursor:,}/{data['total']:,} мазков")
+                if operation != "save_checkpoint" or self.executor is None or self.executor.pause_event.is_set():
+                    # Confirmed write only; routine autosaves while drawing stay quiet.
+                    self._save_feedback("saved", f"Сохранено: {saved_cursor:,} из {data['total']:,} мазков")
             self._project_title = data.get("title", self._project_title)
             self.project_name.setText(self._project_title)
             if self._resume_payload is not None:
@@ -177,7 +181,12 @@ class V3Actions:
         if self.executor:
             self.executor.pause(True)
         self.project_status.setText("SAVE ERROR · "+message)
+        self._save_feedback("failed", message)
         self.log.setText("Сохранение не подтверждено: "+message+"\nНе закрывайте программу, пока ошибка не исправлена.")
+
+    def _save_feedback(self, status, message=""):
+        if hasattr(self, "shell"):
+            self.shell.save_status(status, message)
 
     def refresh_project_library(self):
         if not hasattr(self, "projects_page") or self._project_library_job:
@@ -198,7 +207,6 @@ class V3Actions:
         self._project_library_job = job
         def ready(result):
             self.projects_page.set_rows(*result)
-            self.dashboard_page.set_rows(*result)
         job.result.connect(ready)
         job.failed.connect(lambda message: self.project_status.setText(message))
         def finished():
@@ -454,8 +462,10 @@ class V3Actions:
             self.job.cancel.set()
         self.stop_background_jobs()
         for timer in (self._clock_timer, self._analysis_timer, self._simulation_timer,
-                      self.live_core._timer, self.fill_editor._timer, self._rebalance_timer, self._writer_timer):
+                      self.live_core._timer, self.fill_editor._timer, self._writer_timer):
             timer.stop()
+        if hasattr(self, "shell"):
+            self.shell.close_resources()
         self.live_core._complete_animation.stop()
         self.timer_ring.animation.stop()
         if hasattr(self, "_panel_animation"):
@@ -471,6 +481,8 @@ class V3Actions:
 
     def engine_event(self, event):
         self.live_core.consume(event)
+        if hasattr(self, "shell"):
+            self.shell.engine_event(event)
 
     def v3_job_finished(self):
         self.v3_engine_controls()

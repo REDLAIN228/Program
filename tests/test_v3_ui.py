@@ -44,6 +44,7 @@ def test_human_pause_save_reload_and_resume_across_fresh_window(qapp, tmp_path, 
     source.save(path)
     first = MainWindow(store)
     first.native_test = False
+    first.hotkeys_ready = True  # start_hotkeys is patched out; Windows would otherwise refuse RUN.
     first.local_mode, first.local_canvas, first.target = True, game, int(game.winId())
     profile = game.profile(False)
     profile.canvas = Rect(24, 142, 128, 128)
@@ -73,6 +74,7 @@ def test_human_pause_save_reload_and_resume_across_fresh_window(qapp, tmp_path, 
     second = MainWindow(Store(tmp_path/"data"))  # New controller, new Store, no runner state reused.
     second._test_resuming = True
     second.native_test = False
+    second.hotkeys_ready = True
     second.local_mode, second.local_canvas, second.target = True, game, int(game.winId())
     second._source_key, second._cached_request = "unrelated-old-image", "old-request"
     second.style.setCurrentText("Sketch")
@@ -84,7 +86,9 @@ def test_human_pause_save_reload_and_resume_across_fresh_window(qapp, tmp_path, 
     assert second.style.currentText() == saved["manifest"]["options"]["style"]
     started.clear()
     second.resume_project()
-    pump(qapp, lambda: second.job is None and not second._pending_run)
+    # Every app-local sample is several GuiBridge round trips through this 2 ms
+    # pump loop; the remaining ~22 strokes need ~19 s on Windows (harness-bound).
+    pump(qapp, lambda: second.job is None and not second._pending_run, 60)
     assert not errors, errors
     assert started and min(started) == cursor and not any(i < cursor for i in started)
     pump(qapp, lambda: second._project_writer is not None and second._project_writer.flush(0))

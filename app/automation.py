@@ -47,6 +47,8 @@ class DrawingExecutor:
         self.backend = backend
         self.profile = profile
         self.stop_event = threading.Event()
+        from app.precise_wait import PreciseWaiter
+        self._waiter = PreciseWaiter(self.stop_event)
         self.pause_event = threading.Event()
         self._interrupted = threading.Event()
         self.completed = 0
@@ -230,17 +232,25 @@ class DrawingExecutor:
         return state
 
     def _wait(self, seconds: float) -> None:
+        """Interruptible wait, paced so a stream of samples keeps its average rate."""
+        reaches_deadline = False
         if self._deadline is not None:
             remaining = self._deadline-time.monotonic()
             if remaining <= 0:
                 raise DeadlineReached("Достигнут лимит раунда. Рисование остановлено.")
+            # Waiting the whole remainder reaches the deadline by definition; do not
+            # rely on time.monotonic(), which ticks every ~15.6 ms on Windows/3.12.
+            reaches_deadline = seconds >= remaining
             seconds = min(seconds, remaining)
         waited_at = time.monotonic()
-        stopped = self.stop_event.wait(seconds)
+        # Event.wait rounds short timeouts up to the ~15.6 ms Windows tick;
+        # PreciseWaiter delivers the requested interval and still sees F9.
+        # A wait that follows real work (guard, screenshot) restarts the pace.
+        stopped = self._waiter.pace(seconds)
         self.telemetry.add(wait_seconds=time.monotonic()-waited_at, wait_calls=1)
         if stopped:
             raise InterruptedError("Рисование остановлено")
-        if self._deadline is not None and time.monotonic() >= self._deadline:
+        if reaches_deadline or (self._deadline is not None and time.monotonic() >= self._deadline):
             raise DeadlineReached("Достигнут лимит раунда. Рисование остановлено.")
         if self.pause_event.is_set() or self._interrupted.is_set():
             raise _Paused()
@@ -693,13 +703,14 @@ class DrawingExecutor:
         self._fast_sampling = False
         calibration = plan.analysis.get("input_calibration", {})
         if calibration:
-            from app.speed_calibration import profile_key
+            from app.speed_calibration import TIMING_MODEL, profile_key
             name = calibration.get("recommended_speed")
             try:
                 verified_speed = Timing.preset(name).pixels_per_second
             except KeyError:
                 verified_speed = 0
             self._fast_sampling = (calibration.get("profile") == profile_key(self.profile)
+                                   and calibration.get("timing_model") == TIMING_MODEL
                                    and calibration.get("geometry_ok") is True
                                    and any(s.get("speed") == name and s.get("accepted") is True for s in calibration.get("samples", []))
                                    and verified_speed >= plan.timing.pixels_per_second)
@@ -753,6 +764,8 @@ class DrawingExecutor:
         pause_seconds = 0.
         anchors_checked = False
         lease_acquired_here = self.acquire_input_lease()
+        timer_resolution = self._waiter.high_resolution()
+        timer_resolution.__enter__()
         try:
             state("DRAWING")
             while self.completed < len(plan.strokes):
@@ -900,6 +913,7 @@ class DrawingExecutor:
                 self.run_metrics["telemetry"] = self.telemetry.snapshot()
                 self._publish_checkpoint("finished" if self.completed == len(plan.strokes) else "paused", force=True)
             finally:
+                timer_resolution.__exit__(None, None, None)
                 if lease_acquired_here:
                     self.release_input_lease()
 

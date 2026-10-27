@@ -77,3 +77,9 @@ def test_difficulty_uses_actual_planning_not_placeholder_numbers():
     result = difficulty(image, (64, 64), (1, 4, 16))
     assert result["strokes"] > 0 and result["colors"] == 1
     assert result["estimated_seconds"] > 0 and result["recommended_mode"] in ("FAST", "BALANCED", "MASTERPIECE")
+
+
+def test_user_agent_carries_contact_required_by_wikimedia_robot_policy():
+    # Commons answered 403 "Please respect our robot policy" to the 3.0 agent without contact info.
+    from app.discover import USER_AGENT
+    assert "REDLAIN-DRAW-ENGINE/" in USER_AGENT and "https://" in USER_AGENT

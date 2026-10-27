@@ -20,9 +20,40 @@ from app.priority import analyze, project_regions
 from app.raster import composite_stroke
 
 STAGES = ("Background", "Silhouette", "Base Colors", "Shadows", "Highlights", "Outlines", "Fine Details")
-MODES = {"FAST": dict(grid=384, colors=12, noise=12, epsilon=.9, detail=20),
-         "BALANCED": dict(grid=768, colors=24, noise=5, epsilon=.4, detail=8),
-         "MASTERPIECE": dict(grid=1920, colors=64, noise=2, epsilon=.15, detail=2)}
+MODES = {"FAST": dict(grid=384, colors=12, noise=12, epsilon=.9, detail=20, merge=12),
+         "BALANCED": dict(grid=768, colors=24, noise=5, epsilon=.4, detail=8, merge=12),
+         "MASTERPIECE": dict(grid=1920, colors=64, noise=2, epsilon=.15, detail=2, merge=8)}
+
+
+def merge_close_colors(labels, palette, threshold, dark=80):
+    """Join near-identical *dark* palette entries (RGB distance < threshold, luma < dark).
+
+    Median-cut on resampled edges returns several near-identical darks. Each
+    becomes a 1-3 px sliver along an outline that no physical brush can fill
+    inside its own region, so the underpainting showed through as a halo.
+    The most frequent member of each group keeps its exact colour. Light and
+    chromatic shades are left alone: merging them measurably lost detail on the
+    landscape/texture fixtures (docs/V4_REPORT_RU.md).
+    """
+    if threshold <= 0 or len(palette) < 2:
+        return labels, palette, 0
+    colors = np.asarray(palette, np.float32)
+    luma = colors@np.array([.299, .587, .114], np.float32)
+    counts = np.bincount(labels.ravel(), minlength=len(palette))
+    order = np.argsort(-counts)
+    target = list(range(len(palette)))
+    kept = []
+    for index in order:
+        match = None if luma[index] >= dark else next(
+            (k for k in kept if luma[k] < dark and np.linalg.norm(colors[index]-colors[k]) < threshold), None)
+        if match is None:
+            kept.append(int(index))
+        else:
+            target[int(index)] = match
+    if len(kept) == len(palette):
+        return labels, palette, 0
+    remap = np.array([kept.index(target[i]) for i in range(len(palette))], dtype=labels.dtype)
+    return remap[labels], [tuple(palette[k]) for k in kept], len(palette)-len(kept)
 
 
 def _cancel(event):
@@ -186,6 +217,10 @@ def build_human_plan(image, options, progress=lambda *_: None, cancel=None):
     progress(.09, "Human Paint · объединение цветовых масс")
     labels, palette = _quantize(Image.fromarray(filtered), options.palette, settings["colors"])
     labels = labels.copy()
+    if not options.palette:
+        labels, palette, merged = merge_close_colors(labels, palette, settings["merge"])
+    else:
+        merged = 0
     protected = np.zeros(labels.shape, np.uint8)
     for region in analysis.regions:
         if region["score"] >= 90:
@@ -300,7 +335,7 @@ def build_human_plan(image, options, progress=lambda *_: None, cancel=None):
     plan = Plan(size, strokes, timing, estimate, source_hash, list(dict.fromkeys(s.color for s in strokes)),
                 color_clicks=options.color_clicks, brush_clicks=options.brush_clicks, engine="Human 3.0",
                 smart_finish=False, safety_buffer=options.safety_buffer, time_factor=options.time_factor)
-    plan.analysis = dict(mode=options.human_mode, method="Border-connected regions; local luminance; "+analysis.method,
+    plan.analysis = dict(mode=options.human_mode, merged_colors=merged, method="Border-connected regions; local luminance; "+analysis.method,
                          segmentation_palette=palette,
                          regions=analysis.regions, fill=fill_info,
                          layers=[dict(index=i, name=name, strokes=sum(s.stage == i for s in strokes),

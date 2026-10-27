@@ -98,9 +98,6 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
         self._pending_run = False
         self._pending_capture = False
         self._state = "IDLE"
-        self._rebalance_timer = QTimer(self)
-        self._rebalance_timer.setSingleShot(True)
-        self._rebalance_timer.timeout.connect(self.rebalance_studio)
         self.init_studio()
         self.init_v3()
         self._build_ui()
@@ -128,9 +125,11 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
             self.icon.stop_requested.connect(self.stop)
         self.icon.setWindowOpacity(self.settings.get("icon_opacity", .86))
         screens = QApplication.screens()
-        point = QPoint(*self.settings.get("icon_position", [40, 120]))
+        # Default at the right screen edge, clear of the main window's preview.
+        default = screens[0].availableGeometry().topRight() + QPoint(-64, 160)
+        point = QPoint(*self.settings["icon_position"]) if "icon_position" in self.settings else default
         if not any(s.availableGeometry().contains(point) for s in screens):
-            point = screens[0].availableGeometry().topLeft() + QPoint(40, 80)
+            point = default
         self.icon.move(point)
         self.icon.show()
         self.hotkey_pause.connect(self.pause)
@@ -305,6 +304,8 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
         build_studio(self)
         from app.ui.v3 import upgrade_studio
         upgrade_studio(self)
+        from app.ui.shell import install_shell
+        install_shell(self)
 
     def start_hotkeys(self):
         if os.name == "nt":
@@ -338,18 +339,14 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
         else:
             if self.executor:
                 self.executor.pause()
-            self.showNormal()
-            self.raise_()
-            self.activateWindow()
+            self.shell.reveal()
 
     def open_panel(self):
         if self.executor:
             self.executor.pause()
         if hasattr(self.icon, "popup"):
             self.icon.popup.hide()
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
+        self.shell.reveal()
 
     def set_state(self, state):
         if self._state != state and hasattr(self, "journal"):
@@ -361,10 +358,14 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
             self.icon.show()
         if hasattr(self, "live_core"):
             self.live_core.set_status(state)
+        if hasattr(self, "shell"):
+            self.shell.on_state(state)
 
     def auto_pause_notice(self, reason):
         if self.executor and self._active_plan:
             self.progress.setValue(round(100*len(self.executor.executed_indices)/max(1, len(self._active_plan.strokes))))
+        if hasattr(self, "shell"):
+            self.shell.notify("Автопауза: "+reason)
         self.log.setText("Автопауза: "+reason+"\nПрогресс сохранён в открытой программе. "
                          "Вернитесь к тому же холсту и нажмите RESUME / F8. "
                          "Незавершённый штрих будет повторён. STOP / F9 завершает рисование.")
@@ -372,12 +373,12 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
     def error(self, message):
         if hasattr(self, "journal"):
             self.journal.write("error", message=message)
+        self.log.setText(message)  # Before the state change: the assistant quotes it.
         self.set_state("ERROR")
         self.progress.setRange(0, 100)
-        self.log.setText(message)
         self.showNormal()
         self.icon.show()
-        QMessageBox.warning(self, "ANIME DRAWER", message)
+        QMessageBox.warning(self, "REDLAIN DRAW ENGINE", message)
 
     def busy(self):
         return self.job is not None or self._pending_run or self._pending_capture
@@ -490,6 +491,7 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
         self.store.record(kind, {"width": image.width, "height": image.height, "image": str(path)})
         self.studio_image_changed(path)
         self.set_state("IDLE")
+        self.shell.image_changed()
 
     def import_image(self):
         if not self._require_free():
@@ -643,7 +645,8 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
     def _activate_target(self):
         if self.debug:
             self.debug.hide()
-        self.hide()
+        # Short fade, but input never starts before _ensure_hidden() confirms it.
+        self.shell.window_motion.conceal()
         self.icon.hide()
         if self.overlay_enabled.isChecked() and self.executor:
             self.icon.show()
@@ -654,6 +657,11 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
         if os.name == "nt" and not (self.local_mode and not self.native_test):
             from app.windows import focus_window
             focus_window(self.target)
+
+    def _ensure_hidden(self):
+        """Input and screenshots never start while this window may cover the game."""
+        if self.isVisible():
+            self.shell.window_motion.hide_now()
 
     def calibrate(self):
         if not self._require_free():
@@ -677,6 +685,7 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
 
     def _calibrate_snapshot(self, _state):
         try:
+            self._ensure_hidden()
             state = self._get_target()
             image = self._screenshot(state)
             self.show()
@@ -718,6 +727,7 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
             if ((state.client.width, state.client.height) != self.profile.client_size
                     or state.dpi != self.profile.dpi):
                 raise SafetyError("Окно или DPI изменились перед захватом. Повторите CALIBRATE.")
+            self._ensure_hidden()
             image = self._screenshot(state)
             r = self.profile.character
             self.source.setCurrentText("Character")
@@ -916,6 +926,8 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
                            f"оценка {self.plan.estimated_seconds:.1f} с (зависит от игры)")
         self.log.setText("\n".join(self.plan.notes))
         self.v3_plan_ready(result)
+        self.shell.sync_easel()
+        self.shell.reveal_preview()
         self.writer().submit("cache_plan", self.plan)
         self.set_state("IDLE")
         self.progress.setValue(100)
@@ -1054,6 +1066,7 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
             self.set_state("CHECKING BRUSH")
             def launch():
                 self._pending_run = False
+                self._ensure_hidden()
                 if executor.stop_event.is_set():
                     self.executor = None
                     self.show()
@@ -1156,6 +1169,7 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
 
     def _launch_draw(self, executor, plan, limit, test):
         self._pending_run = False
+        self._ensure_hidden()
         if executor.stop_event.is_set():
             executor.release_input_lease()
             self.executor = None
@@ -1313,7 +1327,7 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
                                   "completed": len(indices), "total": len(plan.strokes),
                                   "metrics": executor.run_metrics if executor else {},
                                   "image": str(image), "preview_only": True})
-        self.showNormal()
+        self.shell.reveal()
         self.log.setText(f"{'Завершено' if outcome == 'finished' else 'Частичный результат / остановлено'}: "
                          f"{len(indices)}/{len(plan.strokes)} штрихов. История содержит симуляцию выполненных штрихов.")
 
@@ -1451,22 +1465,11 @@ class MainWindow(V3Actions, StudioActions, QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, "navigation"):
-            compact = self.width() < 1050
-            self.workspace_tagline.setVisible(not compact)
-            self.navigation.setFixedWidth(54 if compact else 164)
-            self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            for index in range(self.navigation.count()):
-                item = self.navigation.item(index)
-                item.setText("" if compact else item.data(Qt.ItemDataRole.UserRole))
-            if getattr(self, "_compact_layout", None) != compact:
-                self._compact_layout = compact
-                self._rebalance_timer.start(0)
+        if hasattr(self, "shell"):
+            self.shell.resized()
 
-    def rebalance_studio(self):
-        # QSplitter otherwise retains the old navigation allocation even after
-        # its child has collapsed to icon width. Rebalance after Qt's resize pass.
-        nav = 54 if self.width() < 1050 else 164
-        right = min(370, max(282, self.control_pages.width()))
-        center = max(200, self.workspace_splitter.width()-nav-right-10)
-        self.workspace_splitter.setSizes([nav, center, right])
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        # Minimized windows get no hide event: stop decorative frames explicitly.
+        if event.type() in (event.Type.WindowStateChange, event.Type.ActivationChange) and hasattr(self, "shell"):
+            self.shell.sync_decorations()

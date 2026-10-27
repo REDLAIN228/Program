@@ -59,7 +59,6 @@ def upgrade_studio(p):
     surfaces = QStackedWidget()
     p.workspace_splitter.replaceWidget(1, surfaces)
     p.surfaces = surfaces
-    p.dashboard_page = ProjectsPage(dashboard=True)
     p.projects_page = ProjectsPage()
     p.discover_page = DiscoverPage(p.store.root, p.discover_analysis_options)
     p.discover_page.imported.connect(p.import_discovery_image)
@@ -72,9 +71,9 @@ def upgrade_studio(p):
     p.live_description.setWordWrap(True)
     p.live_description.setObjectName("muted")
     box.addWidget(p.live_description)
-    for page in (p.dashboard_page, workspace, live, p.discover_page, p.projects_page):
+    for page in (workspace, live, p.discover_page, p.projects_page):
         surfaces.addWidget(page)
-    for page in (p.dashboard_page, p.projects_page):
+    for page in (p.projects_page,):
         page.import_requested.connect(p.import_image)
         page.import_requested.connect(lambda: p.navigate_v3("Workspace"))
         page.refresh_requested.connect(p.refresh_project_library)

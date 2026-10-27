@@ -1,0 +1,830 @@
+{
+  "scope": "Executor pacing on this OS with an in-memory paint window; not Roblox, not SendInput",
+  "os": "Windows 11",
+  "python": "3.12.10",
+  "timing": "Turbo · 7",
+  "cases": {
+    "portrait": {
+      "Vector 2.0": {
+        "strokes": 132,
+        "planning_seconds": 0.778,
+        "path": {
+          "strokes": 132,
+          "points": 2311,
+          "draw_length": 5359.975680300751,
+          "travel_length": 1721.2705310583115
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.955322265625,
+          "interior_pixel_agreement": 0.9491666666666667,
+          "important_agreement": 0.6051779935275081,
+          "edge_distance_mean": 0.8993123769760132,
+          "edge_distance_max": 1.3693000078201294
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 42.008,
+          "pen_seconds": 39.497,
+          "predicted_seconds": 50.236,
+          "mouse_moves": 2561,
+          "mouse_presses": 144,
+          "wait_calls": 2590,
+          "wait_seconds": 41.765,
+          "received_segments": 2549,
+          "received_vs_preview": {
+            "pixel_agreement": 0.98541259765625,
+            "interior_pixel_agreement": 0.9834027777777777,
+            "important_agreement": 0.9228694714131608,
+            "edge_distance_mean": 0.24849902093410492,
+            "edge_distance_max": 1.3693000078201294
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.95538330078125,
+            "interior_pixel_agreement": 0.9492361111111111,
+            "important_agreement": 0.6574973031283711,
+            "edge_distance_mean": 0.9105313420295715,
+            "edge_distance_max": 2.738600015640259
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 14.174,
+          "pen_seconds": 12.126,
+          "predicted_seconds": 50.236,
+          "mouse_moves": 2561,
+          "mouse_presses": 144,
+          "wait_calls": 2590,
+          "wait_seconds": 14.033,
+          "received_segments": 2549,
+          "received_vs_preview": {
+            "pixel_agreement": 0.98541259765625,
+            "interior_pixel_agreement": 0.9834027777777777,
+            "important_agreement": 0.9228694714131608,
+            "edge_distance_mean": 0.24849902093410492,
+            "edge_distance_max": 1.3693000078201294
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.95538330078125,
+            "interior_pixel_agreement": 0.9492361111111111,
+            "important_agreement": 0.6574973031283711,
+            "edge_distance_mean": 0.9105313420295715,
+            "edge_distance_max": 2.738600015640259
+          }
+        },
+        "speedup": 2.96
+      },
+      "Human 3.0 FAST": {
+        "strokes": 15,
+        "planning_seconds": 0.262,
+        "path": {
+          "strokes": 15,
+          "points": 804,
+          "draw_length": 3322.2604869910324,
+          "travel_length": 459.88114643096924
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.9776611328125,
+          "interior_pixel_agreement": 0.9745833333333334,
+          "important_agreement": 0.8327939590075513,
+          "edge_distance_mean": 0.44899579882621765,
+          "edge_distance_max": 10.378600120544434
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 17.486,
+          "pen_seconds": 16.0,
+          "predicted_seconds": 21.178,
+          "mouse_moves": 1036,
+          "mouse_presses": 21,
+          "wait_calls": 1052,
+          "wait_seconds": 17.453,
+          "received_segments": 1030,
+          "received_vs_preview": {
+            "pixel_agreement": 0.975341796875,
+            "interior_pixel_agreement": 0.9719444444444445,
+            "important_agreement": 0.8063646170442287,
+            "edge_distance_mean": 0.44040247797966003,
+            "edge_distance_max": 10.919300079345703
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.96624755859375,
+            "interior_pixel_agreement": 0.9615972222222222,
+            "important_agreement": 0.7108953613807982,
+            "edge_distance_mean": 0.5910994410514832,
+            "edge_distance_max": 10.378600120544434
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 6.731,
+          "pen_seconds": 5.47,
+          "predicted_seconds": 21.178,
+          "mouse_moves": 1036,
+          "mouse_presses": 21,
+          "wait_calls": 1052,
+          "wait_seconds": 6.687,
+          "received_segments": 1030,
+          "received_vs_preview": {
+            "pixel_agreement": 0.975341796875,
+            "interior_pixel_agreement": 0.9719444444444445,
+            "important_agreement": 0.8063646170442287,
+            "edge_distance_mean": 0.44040247797966003,
+            "edge_distance_max": 10.919300079345703
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.96624755859375,
+            "interior_pixel_agreement": 0.9615972222222222,
+            "important_agreement": 0.7108953613807982,
+            "edge_distance_mean": 0.5910994410514832,
+            "edge_distance_max": 10.378600120544434
+          }
+        },
+        "speedup": 2.6
+      },
+      "Human 3.0 BALANCED": {
+        "strokes": 31,
+        "planning_seconds": 0.339,
+        "path": {
+          "strokes": 31,
+          "points": 1083,
+          "draw_length": 3551.434146340802,
+          "travel_length": 1205.0531377792358
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.97943115234375,
+          "interior_pixel_agreement": 0.9765972222222222,
+          "important_agreement": 0.8182308522114348,
+          "edge_distance_mean": 0.2876206040382385,
+          "edge_distance_max": 0.9549999833106995
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 21.958,
+          "pen_seconds": 20.297,
+          "predicted_seconds": 25.921,
+          "mouse_moves": 1312,
+          "mouse_presses": 38,
+          "wait_calls": 1330,
+          "wait_seconds": 21.89,
+          "received_segments": 1305,
+          "received_vs_preview": {
+            "pixel_agreement": 0.97930908203125,
+            "interior_pixel_agreement": 0.9764583333333333,
+            "important_agreement": 0.8176914778856527,
+            "edge_distance_mean": 0.2917262315750122,
+            "edge_distance_max": 1.3693000078201294
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.96539306640625,
+            "interior_pixel_agreement": 0.960625,
+            "important_agreement": 0.6947141316073355,
+            "edge_distance_mean": 0.5487778782844543,
+            "edge_distance_max": 1.909999966621399
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 8.177,
+          "pen_seconds": 6.783,
+          "predicted_seconds": 25.921,
+          "mouse_moves": 1312,
+          "mouse_presses": 38,
+          "wait_calls": 1330,
+          "wait_seconds": 8.125,
+          "received_segments": 1305,
+          "received_vs_preview": {
+            "pixel_agreement": 0.97930908203125,
+            "interior_pixel_agreement": 0.9764583333333333,
+            "important_agreement": 0.8176914778856527,
+            "edge_distance_mean": 0.2917262315750122,
+            "edge_distance_max": 1.3693000078201294
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.96539306640625,
+            "interior_pixel_agreement": 0.960625,
+            "important_agreement": 0.6947141316073355,
+            "edge_distance_mean": 0.5487778782844543,
+            "edge_distance_max": 1.909999966621399
+          }
+        },
+        "speedup": 2.69
+      },
+      "Human 3.0 MASTERPIECE": {
+        "strokes": 49,
+        "planning_seconds": 0.528,
+        "path": {
+          "strokes": 49,
+          "points": 1568,
+          "draw_length": 3754.1055039570333,
+          "travel_length": 2090.210352897644
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.97808837890625,
+          "interior_pixel_agreement": 0.9750694444444444,
+          "important_agreement": 0.8063646170442287,
+          "edge_distance_mean": 0.33381080627441406,
+          "edge_distance_max": 0.9549999833106995
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 28.849,
+          "pen_seconds": 26.906,
+          "predicted_seconds": 32.956,
+          "mouse_moves": 1744,
+          "mouse_presses": 58,
+          "wait_calls": 1766,
+          "wait_seconds": 28.766,
+          "received_segments": 1735,
+          "received_vs_preview": {
+            "pixel_agreement": 0.980712890625,
+            "interior_pixel_agreement": 0.9780555555555556,
+            "important_agreement": 0.8295577130528586,
+            "edge_distance_mean": 0.2655789852142334,
+            "edge_distance_max": 1.3693000078201294
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.96380615234375,
+            "interior_pixel_agreement": 0.9588194444444444,
+            "important_agreement": 0.680151024811219,
+            "edge_distance_mean": 0.5744079351425171,
+            "edge_distance_max": 1.3693000078201294
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 10.246,
+          "pen_seconds": 8.595,
+          "predicted_seconds": 32.956,
+          "mouse_moves": 1744,
+          "mouse_presses": 58,
+          "wait_calls": 1766,
+          "wait_seconds": 10.172,
+          "received_segments": 1735,
+          "received_vs_preview": {
+            "pixel_agreement": 0.980712890625,
+            "interior_pixel_agreement": 0.9780555555555556,
+            "important_agreement": 0.8295577130528586,
+            "edge_distance_mean": 0.2655789852142334,
+            "edge_distance_max": 1.3693000078201294
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.96380615234375,
+            "interior_pixel_agreement": 0.9588194444444444,
+            "important_agreement": 0.680151024811219,
+            "edge_distance_mean": 0.5744079351425171,
+            "edge_distance_max": 1.3693000078201294
+          }
+        },
+        "speedup": 2.82
+      }
+    },
+    "landscape": {
+      "Vector 2.0": {
+        "strokes": 141,
+        "planning_seconds": 0.602,
+        "path": {
+          "strokes": 141,
+          "points": 1602,
+          "draw_length": 8231.339681314877,
+          "travel_length": 4297.719292640686
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.93768310546875,
+          "interior_pixel_agreement": 0.97125,
+          "important_agreement": 0.6562193927522038,
+          "edge_distance_mean": 8.517315864562988,
+          "edge_distance_max": 48.051918029785156
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 45.937,
+          "pen_seconds": 40.016,
+          "predicted_seconds": 59.232,
+          "mouse_moves": 2621,
+          "mouse_presses": 179,
+          "wait_calls": 2699,
+          "wait_seconds": 45.674,
+          "received_segments": 2583,
+          "received_vs_preview": {
+            "pixel_agreement": 0.97430419921875,
+            "interior_pixel_agreement": 0.9889583333333334,
+            "important_agreement": 0.8961802154750245,
+            "edge_distance_mean": 0.3608870208263397,
+            "edge_distance_max": 13.369999885559082
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.96209716796875,
+            "interior_pixel_agreement": 0.9819444444444444,
+            "important_agreement": 0.7453476983349657,
+            "edge_distance_mean": 7.137214660644531,
+            "edge_distance_max": 49.29481887817383
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 17.853,
+          "pen_seconds": 13.309,
+          "predicted_seconds": 59.232,
+          "mouse_moves": 2621,
+          "mouse_presses": 179,
+          "wait_calls": 2699,
+          "wait_seconds": 17.749,
+          "received_segments": 2583,
+          "received_vs_preview": {
+            "pixel_agreement": 0.97430419921875,
+            "interior_pixel_agreement": 0.9889583333333334,
+            "important_agreement": 0.8961802154750245,
+            "edge_distance_mean": 0.3608870208263397,
+            "edge_distance_max": 13.369999885559082
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.96209716796875,
+            "interior_pixel_agreement": 0.9819444444444444,
+            "important_agreement": 0.7453476983349657,
+            "edge_distance_mean": 7.137214660644531,
+            "edge_distance_max": 49.29481887817383
+          }
+        },
+        "speedup": 2.57
+      },
+      "Human 3.0 FAST": {
+        "strokes": 21,
+        "planning_seconds": 0.193,
+        "path": {
+          "strokes": 21,
+          "points": 588,
+          "draw_length": 4185.970591289268,
+          "travel_length": 976.3358902931213
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.94647216796875,
+          "interior_pixel_agreement": 0.9775694444444445,
+          "important_agreement": 0.7561214495592556,
+          "edge_distance_mean": 8.250471115112305,
+          "edge_distance_max": 48.051918029785156
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 19.945,
+          "pen_seconds": 17.205,
+          "predicted_seconds": 24.896,
+          "mouse_moves": 1126,
+          "mouse_presses": 36,
+          "wait_calls": 1160,
+          "wait_seconds": 19.814,
+          "received_segments": 1111,
+          "received_vs_preview": {
+            "pixel_agreement": 0.98138427734375,
+            "interior_pixel_agreement": 0.9876388888888888,
+            "important_agreement": 0.8432908912830558,
+            "edge_distance_mean": 0.21650604903697968,
+            "edge_distance_max": 1.3693000078201294
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.94354248046875,
+            "interior_pixel_agreement": 0.9663888888888889,
+            "important_agreement": 0.6297747306562194,
+            "edge_distance_mean": 7.307409763336182,
+            "edge_distance_max": 49.29481887817383
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 8.782,
+          "pen_seconds": 6.579,
+          "predicted_seconds": 24.896,
+          "mouse_moves": 1126,
+          "mouse_presses": 36,
+          "wait_calls": 1160,
+          "wait_seconds": 8.766,
+          "received_segments": 1111,
+          "received_vs_preview": {
+            "pixel_agreement": 0.98138427734375,
+            "interior_pixel_agreement": 0.9876388888888888,
+            "important_agreement": 0.8432908912830558,
+            "edge_distance_mean": 0.21650604903697968,
+            "edge_distance_max": 1.3693000078201294
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.94354248046875,
+            "interior_pixel_agreement": 0.9663888888888889,
+            "important_agreement": 0.6297747306562194,
+            "edge_distance_mean": 7.307409763336182,
+            "edge_distance_max": 49.29481887817383
+          }
+        },
+        "speedup": 2.27
+      },
+      "Human 3.0 BALANCED": {
+        "strokes": 35,
+        "planning_seconds": 0.252,
+        "path": {
+          "strokes": 35,
+          "points": 766,
+          "draw_length": 4750.705048337378,
+          "travel_length": 1529.5697894096375
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.95648193359375,
+          "interior_pixel_agreement": 0.9888194444444445,
+          "important_agreement": 0.8295788442703232,
+          "edge_distance_mean": 8.072049140930176,
+          "edge_distance_max": 48.051918029785156
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 24.096,
+          "pen_seconds": 20.877,
+          "predicted_seconds": 30.103,
+          "mouse_moves": 1359,
+          "mouse_presses": 54,
+          "wait_calls": 1400,
+          "wait_seconds": 24.063,
+          "received_segments": 1340,
+          "received_vs_preview": {
+            "pixel_agreement": 0.98394775390625,
+            "interior_pixel_agreement": 0.9907638888888889,
+            "important_agreement": 0.8579823702252694,
+            "edge_distance_mean": 0.1833924949169159,
+            "edge_distance_max": 1.3693000078201294
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.95574951171875,
+            "interior_pixel_agreement": 0.9805555555555555,
+            "important_agreement": 0.7140058765915769,
+            "edge_distance_mean": 7.018643379211426,
+            "edge_distance_max": 49.29481887817383
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 10.38,
+          "pen_seconds": 7.812,
+          "predicted_seconds": 30.103,
+          "mouse_moves": 1359,
+          "mouse_presses": 54,
+          "wait_calls": 1400,
+          "wait_seconds": 10.359,
+          "received_segments": 1340,
+          "received_vs_preview": {
+            "pixel_agreement": 0.98394775390625,
+            "interior_pixel_agreement": 0.9907638888888889,
+            "important_agreement": 0.8579823702252694,
+            "edge_distance_mean": 0.1833924949169159,
+            "edge_distance_max": 1.3693000078201294
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.95574951171875,
+            "interior_pixel_agreement": 0.9805555555555555,
+            "important_agreement": 0.7140058765915769,
+            "edge_distance_mean": 7.018643379211426,
+            "edge_distance_max": 49.29481887817383
+          }
+        },
+        "speedup": 2.32
+      },
+      "Human 3.0 MASTERPIECE": {
+        "strokes": 69,
+        "planning_seconds": 0.363,
+        "path": {
+          "strokes": 69,
+          "points": 1003,
+          "draw_length": 5184.092453577777,
+          "travel_length": 2648.722147464752
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.956298828125,
+          "interior_pixel_agreement": 0.9885416666666667,
+          "important_agreement": 0.8266405484818805,
+          "edge_distance_mean": 8.0601167678833,
+          "edge_distance_max": 48.051918029785156
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 28.503,
+          "pen_seconds": 24.721,
+          "predicted_seconds": 36.08,
+          "mouse_moves": 1611,
+          "mouse_presses": 92,
+          "wait_calls": 1660,
+          "wait_seconds": 28.39,
+          "received_segments": 1588,
+          "received_vs_preview": {
+            "pixel_agreement": 0.98358154296875,
+            "interior_pixel_agreement": 0.9904166666666666,
+            "important_agreement": 0.8550440744368266,
+            "edge_distance_mean": 0.1879342794418335,
+            "edge_distance_max": 1.909999966621399
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.9556884765625,
+            "interior_pixel_agreement": 0.9804861111111111,
+            "important_agreement": 0.7159647404505387,
+            "edge_distance_mean": 7.031553745269775,
+            "edge_distance_max": 49.29481887817383
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 12.043,
+          "pen_seconds": 9.077,
+          "predicted_seconds": 36.08,
+          "mouse_moves": 1611,
+          "mouse_presses": 92,
+          "wait_calls": 1660,
+          "wait_seconds": 12.0,
+          "received_segments": 1588,
+          "received_vs_preview": {
+            "pixel_agreement": 0.98358154296875,
+            "interior_pixel_agreement": 0.9904166666666666,
+            "important_agreement": 0.8550440744368266,
+            "edge_distance_mean": 0.1879342794418335,
+            "edge_distance_max": 1.909999966621399
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.9556884765625,
+            "interior_pixel_agreement": 0.9804861111111111,
+            "important_agreement": 0.7159647404505387,
+            "edge_distance_mean": 7.031553745269775,
+            "edge_distance_max": 49.29481887817383
+          }
+        },
+        "speedup": 2.37
+      }
+    },
+    "texture_text": {
+      "Vector 2.0": {
+        "strokes": 73,
+        "planning_seconds": 0.842,
+        "path": {
+          "strokes": 73,
+          "points": 2132,
+          "draw_length": 4345.896601166479,
+          "travel_length": 2260.8873057365417
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.82257080078125,
+          "interior_pixel_agreement": 0.8069444444444445,
+          "important_agreement": 0.4850396539293439,
+          "edge_distance_mean": 1.0592617988586426,
+          "edge_distance_max": 2.865000009536743
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 37.951,
+          "pen_seconds": 34.656,
+          "predicted_seconds": 42.095,
+          "mouse_moves": 2254,
+          "mouse_presses": 91,
+          "wait_calls": 2295,
+          "wait_seconds": 37.812,
+          "received_segments": 2236,
+          "received_vs_preview": {
+            "pixel_agreement": 0.94659423828125,
+            "interior_pixel_agreement": 0.9396527777777778,
+            "important_agreement": 0.9552992069214131,
+            "edge_distance_mean": 0.3353350758552551,
+            "edge_distance_max": 4.107900142669678
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.77532958984375,
+            "interior_pixel_agreement": 0.7536111111111111,
+            "important_agreement": 0.4585436193222783,
+            "edge_distance_mean": 1.3074026107788086,
+            "edge_distance_max": 4.107900142669678
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 13.181,
+          "pen_seconds": 10.562,
+          "predicted_seconds": 42.095,
+          "mouse_moves": 2254,
+          "mouse_presses": 91,
+          "wait_calls": 2295,
+          "wait_seconds": 13.046,
+          "received_segments": 2236,
+          "received_vs_preview": {
+            "pixel_agreement": 0.94659423828125,
+            "interior_pixel_agreement": 0.9396527777777778,
+            "important_agreement": 0.9552992069214131,
+            "edge_distance_mean": 0.3353350758552551,
+            "edge_distance_max": 4.107900142669678
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.77532958984375,
+            "interior_pixel_agreement": 0.7536111111111111,
+            "important_agreement": 0.4585436193222783,
+            "edge_distance_mean": 1.3074026107788086,
+            "edge_distance_max": 4.107900142669678
+          }
+        },
+        "speedup": 2.88
+      },
+      "Human 3.0 FAST": {
+        "strokes": 20,
+        "planning_seconds": 0.199,
+        "path": {
+          "strokes": 20,
+          "points": 527,
+          "draw_length": 1860.9445769795377,
+          "travel_length": 1090.7209777832031
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.94293212890625,
+          "interior_pixel_agreement": 0.9398611111111111,
+          "important_agreement": 0.8339942321557318,
+          "edge_distance_mean": 1.0953973531723022,
+          "edge_distance_max": 22.000099182128906
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 11.871,
+          "pen_seconds": 9.892,
+          "predicted_seconds": 14.004,
+          "mouse_moves": 643,
+          "mouse_presses": 29,
+          "wait_calls": 666,
+          "wait_seconds": 11.813,
+          "received_segments": 634,
+          "received_vs_preview": {
+            "pixel_agreement": 0.950439453125,
+            "interior_pixel_agreement": 0.9441666666666667,
+            "important_agreement": 0.8608507570295602,
+            "edge_distance_mean": 0.343618243932724,
+            "edge_distance_max": 1.909999966621399
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.90447998046875,
+            "interior_pixel_agreement": 0.89625,
+            "important_agreement": 0.7276496034607065,
+            "edge_distance_mean": 1.29717218875885,
+            "edge_distance_max": 20.918699264526367
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 5.169,
+          "pen_seconds": 3.579,
+          "predicted_seconds": 14.004,
+          "mouse_moves": 643,
+          "mouse_presses": 29,
+          "wait_calls": 666,
+          "wait_seconds": 5.14,
+          "received_segments": 634,
+          "received_vs_preview": {
+            "pixel_agreement": 0.950439453125,
+            "interior_pixel_agreement": 0.9441666666666667,
+            "important_agreement": 0.8608507570295602,
+            "edge_distance_mean": 0.343618243932724,
+            "edge_distance_max": 1.909999966621399
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.90447998046875,
+            "interior_pixel_agreement": 0.89625,
+            "important_agreement": 0.7276496034607065,
+            "edge_distance_mean": 1.29717218875885,
+            "edge_distance_max": 20.918699264526367
+          }
+        },
+        "speedup": 2.3
+      },
+      "Human 3.0 BALANCED": {
+        "strokes": 20,
+        "planning_seconds": 0.257,
+        "path": {
+          "strokes": 20,
+          "points": 665,
+          "draw_length": 1870.9454809532717,
+          "travel_length": 1090.7209777832031
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.9378662109375,
+          "interior_pixel_agreement": 0.9340972222222222,
+          "important_agreement": 0.8190338860850757,
+          "edge_distance_mean": 1.1408536434173584,
+          "edge_distance_max": 22.000099182128906
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 13.911,
+          "pen_seconds": 11.954,
+          "predicted_seconds": 15.549,
+          "mouse_moves": 781,
+          "mouse_presses": 29,
+          "wait_calls": 804,
+          "wait_seconds": 13.859,
+          "received_segments": 772,
+          "received_vs_preview": {
+            "pixel_agreement": 0.95452880859375,
+            "interior_pixel_agreement": 0.94875,
+            "important_agreement": 0.8727469358327326,
+            "edge_distance_mean": 0.32361701130867004,
+            "edge_distance_max": 1.909999966621399
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.90069580078125,
+            "interior_pixel_agreement": 0.8920138888888889,
+            "important_agreement": 0.7162941600576784,
+            "edge_distance_mean": 1.3354802131652832,
+            "edge_distance_max": 20.918699264526367
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 5.731,
+          "pen_seconds": 4.093,
+          "predicted_seconds": 15.549,
+          "mouse_moves": 781,
+          "mouse_presses": 29,
+          "wait_calls": 804,
+          "wait_seconds": 5.703,
+          "received_segments": 772,
+          "received_vs_preview": {
+            "pixel_agreement": 0.95452880859375,
+            "interior_pixel_agreement": 0.94875,
+            "important_agreement": 0.8727469358327326,
+            "edge_distance_mean": 0.32361701130867004,
+            "edge_distance_max": 1.909999966621399
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.90069580078125,
+            "interior_pixel_agreement": 0.8920138888888889,
+            "important_agreement": 0.7162941600576784,
+            "edge_distance_mean": 1.3354802131652832,
+            "edge_distance_max": 20.918699264526367
+          }
+        },
+        "speedup": 2.43
+      },
+      "Human 3.0 MASTERPIECE": {
+        "strokes": 20,
+        "planning_seconds": 0.394,
+        "path": {
+          "strokes": 20,
+          "points": 968,
+          "draw_length": 1905.9004055276043,
+          "travel_length": 1090.7209777832031
+        },
+        "preview_vs_source": {
+          "pixel_agreement": 0.93585205078125,
+          "interior_pixel_agreement": 0.9317361111111111,
+          "important_agreement": 0.8130857966834896,
+          "edge_distance_mean": 1.1650993824005127,
+          "edge_distance_max": 22.000099182128906
+        },
+        "legacy": {
+          "outcome": "finished",
+          "seconds": 17.648,
+          "pen_seconds": 15.669,
+          "predicted_seconds": 18.809,
+          "mouse_moves": 1021,
+          "mouse_presses": 29,
+          "wait_calls": 1044,
+          "wait_seconds": 17.577,
+          "received_segments": 1012,
+          "received_vs_preview": {
+            "pixel_agreement": 0.95697021484375,
+            "interior_pixel_agreement": 0.9514583333333333,
+            "important_agreement": 0.8797764960346071,
+            "edge_distance_mean": 0.31114262342453003,
+            "edge_distance_max": 1.909999966621399
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.898681640625,
+            "interior_pixel_agreement": 0.8897222222222222,
+            "important_agreement": 0.7101658255227109,
+            "edge_distance_mean": 1.3602064847946167,
+            "edge_distance_max": 20.918699264526367
+          }
+        },
+        "precise": {
+          "outcome": "finished",
+          "seconds": 6.706,
+          "pen_seconds": 5.048,
+          "predicted_seconds": 18.809,
+          "mouse_moves": 1021,
+          "mouse_presses": 29,
+          "wait_calls": 1044,
+          "wait_seconds": 6.688,
+          "received_segments": 1012,
+          "received_vs_preview": {
+            "pixel_agreement": 0.95697021484375,
+            "interior_pixel_agreement": 0.9514583333333333,
+            "important_agreement": 0.8797764960346071,
+            "edge_distance_mean": 0.31114262342453003,
+            "edge_distance_max": 1.909999966621399
+          },
+          "received_vs_source": {
+            "pixel_agreement": 0.898681640625,
+            "interior_pixel_agreement": 0.8897222222222222,
+            "important_agreement": 0.7101658255227109,
+            "edge_distance_mean": 1.3602064847946167,
+            "edge_distance_max": 20.918699264526367
+          }
+        },
+        "speedup": 2.63
+      }
+    }
+  }
+}

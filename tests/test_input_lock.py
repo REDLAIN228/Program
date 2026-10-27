@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 
@@ -7,14 +8,16 @@ from app.input_lock import InputLease
 
 
 def test_other_process_cannot_steal_desktop_lease_and_crash_releases_it(tmp_path):
+    # The child's Russian message must not depend on the Windows ANSI codepage.
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     path = tmp_path/"input.lock"
     first = InputLease(path)
     first.acquire()
     script = "from app.input_lock import InputLease; import sys; lock=InputLease(sys.argv[1]); lock.acquire(); print('acquired'); lock.release()"
-    blocked = subprocess.run([sys.executable, "-c", script, str(path)], capture_output=True, text=True)
+    blocked = subprocess.run([sys.executable, "-c", script, str(path)], capture_output=True, text=True, encoding="utf-8", env=env)
     assert blocked.returncode != 0 and "Другой экземпляр" in blocked.stderr
     first.release()
-    accepted = subprocess.run([sys.executable, "-c", script, str(path)], capture_output=True, text=True)
+    accepted = subprocess.run([sys.executable, "-c", script, str(path)], capture_output=True, text=True, encoding="utf-8", env=env)
     assert accepted.returncode == 0 and "acquired" in accepted.stdout
     # A process exiting without explicit unlock still releases the OS lease.
     subprocess.check_call([sys.executable, "-c", "from app.input_lock import InputLease; import sys,os; lock=InputLease(sys.argv[1]); lock.acquire(); os._exit(0)", str(path)])

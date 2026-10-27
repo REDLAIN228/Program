@@ -32,7 +32,7 @@ class FloatingIcon(QWidget):
                                  "QPushButton {background:#1a1f2b;color:#f5f6fa;border:1px solid #343d51;"
                                  "border-radius:6px;padding:8px;} QPushButton:hover {background:#333d53;}")
         layout = QVBoxLayout(self.popup)
-        layout.addWidget(QLabel("REDLAIN DRAW ENGINE 3.0"))
+        layout.addWidget(QLabel("REDLAIN DRAW ENGINE 4.0"))
         self.status_label, self.time_label = QLabel("IDLE · 0%"), QLabel("Осталось —")
         layout.addWidget(self.status_label)
         layout.addWidget(self.time_label)

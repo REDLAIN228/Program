@@ -9,6 +9,9 @@ from PIL import Image, ImageDraw
 from app.models import Plan, Stroke, Timing, estimate_plan
 
 CANDIDATES = ("Safe", "Normal", "Rapid · 9", "Sprint · 10")
+# 2: waits are precise on Windows (app.precise_wait). Earlier acceptance was
+# measured while every short wait lasted ~15.6 ms, i.e. at a slower real speed.
+TIMING_MODEL = 2
 
 
 def profile_key(profile):
@@ -57,5 +60,5 @@ def inspect_calibration(before, after, profile, plan, durations=()):
     # Require the baseline to work too; a lone fast-looking trace is not enough.
     recommendation = accepted[-1] if accepted and samples[0]["accepted"] else None
     return dict(samples=samples, geometry_ok=geometry_ok, outside_pixels=stray,
-                recommended_speed=recommendation, profile=profile_key(profile),
+                recommended_speed=recommendation, profile=profile_key(profile), timing_model=TIMING_MODEL,
                 scope="Actual screenshot acceptance of these four strokes; not a universal game guarantee")
