@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="350" viewBox="0 0 1280 350" role="img" aria-label="REDLAIN Draw Engine 3.0 — Roblox drawing toolkit">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#080D1B"/><stop offset="1" stop-color="#111B39"/></linearGradient>
+  <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#547AFF"/><stop offset="1" stop-color="#0D21CB"/></linearGradient>
+  <radialGradient id="halo"><stop stop-color="#3157FF" stop-opacity=".42"/><stop offset="1" stop-color="#3157FF" stop-opacity="0"/></radialGradient>
+  <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="#96ACFF" stroke-opacity=".07"/></pattern>
+</defs>
+<rect width="1280" height="350" rx="26" fill="url(#bg)"/><rect width="1280" height="350" rx="26" fill="url(#grid)"/>
+<circle cx="1052" cy="164" r="224" fill="url(#halo)"/>
+<path d="M0 349h1280" stroke="#3552FF" stroke-width="3"/>
+<rect x="64" y="42" width="162" height="30" rx="15" fill="#17295C" stroke="#345CF5" stroke-opacity=".8"/>
+<circle cx="82" cy="57" r="4" fill="#73A3FF"/><text x="96" y="62" fill="#D8E4FF" font-family="Arial, sans-serif" font-size="14" letter-spacing="2" font-weight="bold">REDLAIN LAB</text>
+<text x="64" y="154" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="73" letter-spacing="4" font-weight="bold">DRAW ENGINE</text>
+<text x="66" y="203" fill="#8FAAFF" font-family="Arial, sans-serif" font-size="28" letter-spacing="4" font-weight="bold">VERSION 3.0</text>
+<text x="66" y="261" fill="#C5D1E9" font-family="Arial, sans-serif" font-size="19">Roblox drawing tools  /  Smart strokes  /  AI experiments</text>
+<g transform="translate(1010 167)">
+ <circle r="119" fill="none" stroke="#4864E8" stroke-width="1" stroke-dasharray="6 9" opacity=".65"/>
+ <circle r="96" fill="#101F54" stroke="#5378FF" stroke-width="3"/>
+ <circle r="69" fill="url(#glow)"/>
+ <path d="M-33 -35H6C36 -35 47 -17 47 0C47 19 35 30 16 34L42 64H13L-8 39H-15V64H-33ZM-15 -16V18H7C18 18 26 11 26 1C26 -10 19 -16 5 -16Z" fill="#FFFFFF"/>
+ <circle cx="86" cy="-84" r="10" fill="#8FAAFF"/><circle cx="-96" cy="67" r="6" fill="#FFFFFF"/>
+</g>
+<text x="1171" y="317" fill="#6E82AC" font-family="Arial, sans-serif" font-size="13" letter-spacing="3" text-anchor="end">BUILT BY REDLAIN</text>
+</svg>
