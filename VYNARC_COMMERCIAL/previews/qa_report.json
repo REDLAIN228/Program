@@ -1,16 +1,16 @@
 [
   {
-    "file": "previews/VYNARC_preview_540p.mp4",
-    "size_mb": 3.9,
+    "file": "renders/VYNARC_commercial_4K_60fps_H264.mp4",
+    "size_mb": 82.0,
     "duration": 15.0,
     "video": {
       "codec_name": "h264",
       "codec_type": "video",
-      "width": 960,
-      "height": 540,
+      "width": 3840,
+      "height": 2160,
       "pix_fmt": "yuv420p",
-      "r_frame_rate": "30/1",
-      "bit_rate": "1877849"
+      "r_frame_rate": "60/1",
+      "bit_rate": "43411078"
     },
     "audio": [
       {
@@ -19,24 +19,452 @@
         "sample_rate": "48000",
         "channels": 2,
         "r_frame_rate": "0/0",
-        "bit_rate": "191437"
+        "bit_rate": "312818"
       }
     ],
     "first_frame_mean": 0.0,
     "last_frame_mean": 0.0,
     "motion_spikes": [],
     "palette": {
-      "violet_250_310": 0.8023,
-      "blue_200_250": 0.1976,
+      "violet_250_310": 0.9991,
+      "blue_200_250": 0.0008,
       "magenta_310_340": 0.0,
       "orange_red_0_60_or_340_360": 0.0,
-      "samples": 1211402
+      "samples": 881350
     },
-    "logo_correlation_t14": 0.1197,
+    "logo_correlation_t14": 0.9926,
     "audio_check": {
       "present": true,
-      "peak_dbfs": -0.02,
-      "rms_dbfs": -11.67,
+      "peak_dbfs": -0.56,
+      "rms_dbfs": -12.14,
+      "onsets": [
+        {
+          "t": 2.25,
+          "type": "metal",
+          "onset_offset_ms": -10
+        },
+        {
+          "t": 4.02,
+          "type": "impact",
+          "onset_offset_ms": 30
+        },
+        {
+          "t": 4.35,
+          "type": "ui_blip",
+          "onset_offset_ms": 10
+        },
+        {
+          "t": 4.5,
+          "type": "ui_blip",
+          "onset_offset_ms": 20
+        },
+        {
+          "t": 4.65,
+          "type": "ui_blip",
+          "onset_offset_ms": 50
+        },
+        {
+          "t": 4.8,
+          "type": "ui_blip",
+          "onset_offset_ms": -20
+        },
+        {
+          "t": 4.95,
+          "type": "ui_blip",
+          "onset_offset_ms": -10
+        },
+        {
+          "t": 7.02,
+          "type": "impact",
+          "onset_offset_ms": 10
+        },
+        {
+          "t": 8.75,
+          "type": "ui_pop",
+          "onset_offset_ms": -30
+        },
+        {
+          "t": 8.95,
+          "type": "ui_pop",
+          "onset_offset_ms": 40
+        },
+        {
+          "t": 9.15,
+          "type": "ui_pop",
+          "onset_offset_ms": -30
+        },
+        {
+          "t": 9.4,
+          "type": "ui_pop",
+          "onset_offset_ms": 0
+        },
+        {
+          "t": 12.85,
+          "type": "logo_hit",
+          "onset_offset_ms": -10
+        }
+      ]
+    }
+  },
+  {
+    "file": "renders/VYNARC_commercial_4K_60fps_H265.mp4",
+    "size_mb": 33.2,
+    "duration": 15.0,
+    "video": {
+      "codec_name": "hevc",
+      "codec_type": "video",
+      "width": 3840,
+      "height": 2160,
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "60/1",
+      "bit_rate": "17366484"
+    },
+    "audio": [
+      {
+        "codec_name": "aac",
+        "codec_type": "audio",
+        "sample_rate": "48000",
+        "channels": 2,
+        "r_frame_rate": "0/0",
+        "bit_rate": "312818"
+      }
+    ],
+    "first_frame_mean": 0.0,
+    "last_frame_mean": 0.0,
+    "motion_spikes": [],
+    "palette": {
+      "violet_250_310": 0.9991,
+      "blue_200_250": 0.0008,
+      "magenta_310_340": 0.0,
+      "orange_red_0_60_or_340_360": 0.0,
+      "samples": 880197
+    },
+    "logo_correlation_t14": 0.9926,
+    "audio_check": {
+      "present": true,
+      "peak_dbfs": -0.56,
+      "rms_dbfs": -12.14,
+      "onsets": [
+        {
+          "t": 2.25,
+          "type": "metal",
+          "onset_offset_ms": -10
+        },
+        {
+          "t": 4.02,
+          "type": "impact",
+          "onset_offset_ms": 30
+        },
+        {
+          "t": 4.35,
+          "type": "ui_blip",
+          "onset_offset_ms": 10
+        },
+        {
+          "t": 4.5,
+          "type": "ui_blip",
+          "onset_offset_ms": 20
+        },
+        {
+          "t": 4.65,
+          "type": "ui_blip",
+          "onset_offset_ms": 50
+        },
+        {
+          "t": 4.8,
+          "type": "ui_blip",
+          "onset_offset_ms": -20
+        },
+        {
+          "t": 4.95,
+          "type": "ui_blip",
+          "onset_offset_ms": -10
+        },
+        {
+          "t": 7.02,
+          "type": "impact",
+          "onset_offset_ms": 10
+        },
+        {
+          "t": 8.75,
+          "type": "ui_pop",
+          "onset_offset_ms": -30
+        },
+        {
+          "t": 8.95,
+          "type": "ui_pop",
+          "onset_offset_ms": 40
+        },
+        {
+          "t": 9.15,
+          "type": "ui_pop",
+          "onset_offset_ms": -30
+        },
+        {
+          "t": 9.4,
+          "type": "ui_pop",
+          "onset_offset_ms": 0
+        },
+        {
+          "t": 12.85,
+          "type": "logo_hit",
+          "onset_offset_ms": -10
+        }
+      ]
+    }
+  },
+  {
+    "file": "renders/VYNARC_commercial_Square_1080x1080_60fps.mp4",
+    "size_mb": 16.1,
+    "duration": 15.0,
+    "video": {
+      "codec_name": "h264",
+      "codec_type": "video",
+      "width": 1080,
+      "height": 1080,
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "60/1",
+      "bit_rate": "8249996"
+    },
+    "audio": [
+      {
+        "codec_name": "aac",
+        "codec_type": "audio",
+        "sample_rate": "48000",
+        "channels": 2,
+        "r_frame_rate": "0/0",
+        "bit_rate": "312818"
+      }
+    ],
+    "first_frame_mean": 0.0,
+    "last_frame_mean": 0.0,
+    "motion_spikes": [],
+    "palette": {
+      "violet_250_310": 0.9998,
+      "blue_200_250": 0.0002,
+      "magenta_310_340": 0.0,
+      "orange_red_0_60_or_340_360": 0.0,
+      "samples": 1624945
+    },
+    "logo_correlation_t14": 0.9929,
+    "audio_check": {
+      "present": true,
+      "peak_dbfs": -0.56,
+      "rms_dbfs": -12.14,
+      "onsets": [
+        {
+          "t": 2.25,
+          "type": "metal",
+          "onset_offset_ms": -10
+        },
+        {
+          "t": 4.02,
+          "type": "impact",
+          "onset_offset_ms": 30
+        },
+        {
+          "t": 4.35,
+          "type": "ui_blip",
+          "onset_offset_ms": 10
+        },
+        {
+          "t": 4.5,
+          "type": "ui_blip",
+          "onset_offset_ms": 20
+        },
+        {
+          "t": 4.65,
+          "type": "ui_blip",
+          "onset_offset_ms": 50
+        },
+        {
+          "t": 4.8,
+          "type": "ui_blip",
+          "onset_offset_ms": -20
+        },
+        {
+          "t": 4.95,
+          "type": "ui_blip",
+          "onset_offset_ms": -10
+        },
+        {
+          "t": 7.02,
+          "type": "impact",
+          "onset_offset_ms": 10
+        },
+        {
+          "t": 8.75,
+          "type": "ui_pop",
+          "onset_offset_ms": -30
+        },
+        {
+          "t": 8.95,
+          "type": "ui_pop",
+          "onset_offset_ms": 40
+        },
+        {
+          "t": 9.15,
+          "type": "ui_pop",
+          "onset_offset_ms": -30
+        },
+        {
+          "t": 9.4,
+          "type": "ui_pop",
+          "onset_offset_ms": 0
+        },
+        {
+          "t": 12.85,
+          "type": "logo_hit",
+          "onset_offset_ms": -10
+        }
+      ]
+    }
+  },
+  {
+    "file": "renders/VYNARC_commercial_TikTok_Shorts_1080x1920_60fps.mp4",
+    "size_mb": 26.9,
+    "duration": 15.0,
+    "video": {
+      "codec_name": "h264",
+      "codec_type": "video",
+      "width": 1080,
+      "height": 1920,
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "60/1",
+      "bit_rate": "13994871"
+    },
+    "audio": [
+      {
+        "codec_name": "aac",
+        "codec_type": "audio",
+        "sample_rate": "48000",
+        "channels": 2,
+        "r_frame_rate": "0/0",
+        "bit_rate": "312818"
+      }
+    ],
+    "first_frame_mean": 0.0,
+    "last_frame_mean": 0.0,
+    "motion_spikes": [],
+    "palette": {
+      "violet_250_310": 0.9997,
+      "blue_200_250": 0.0002,
+      "magenta_310_340": 0.0,
+      "orange_red_0_60_or_340_360": 0.0,
+      "samples": 2746630
+    },
+    "logo_correlation_t14": 0.9932,
+    "audio_check": {
+      "present": true,
+      "peak_dbfs": -0.56,
+      "rms_dbfs": -12.14,
+      "onsets": [
+        {
+          "t": 2.25,
+          "type": "metal",
+          "onset_offset_ms": -10
+        },
+        {
+          "t": 4.02,
+          "type": "impact",
+          "onset_offset_ms": 30
+        },
+        {
+          "t": 4.35,
+          "type": "ui_blip",
+          "onset_offset_ms": 10
+        },
+        {
+          "t": 4.5,
+          "type": "ui_blip",
+          "onset_offset_ms": 20
+        },
+        {
+          "t": 4.65,
+          "type": "ui_blip",
+          "onset_offset_ms": 50
+        },
+        {
+          "t": 4.8,
+          "type": "ui_blip",
+          "onset_offset_ms": -20
+        },
+        {
+          "t": 4.95,
+          "type": "ui_blip",
+          "onset_offset_ms": -10
+        },
+        {
+          "t": 7.02,
+          "type": "impact",
+          "onset_offset_ms": 10
+        },
+        {
+          "t": 8.75,
+          "type": "ui_pop",
+          "onset_offset_ms": -30
+        },
+        {
+          "t": 8.95,
+          "type": "ui_pop",
+          "onset_offset_ms": 40
+        },
+        {
+          "t": 9.15,
+          "type": "ui_pop",
+          "onset_offset_ms": -30
+        },
+        {
+          "t": 9.4,
+          "type": "ui_pop",
+          "onset_offset_ms": 0
+        },
+        {
+          "t": 12.85,
+          "type": "logo_hit",
+          "onset_offset_ms": -10
+        }
+      ]
+    }
+  },
+  {
+    "file": "renders/VYNARC_commercial_YouTube_1920x1080_60fps.mp4",
+    "size_mb": 20.1,
+    "duration": 15.0,
+    "video": {
+      "codec_name": "h264",
+      "codec_type": "video",
+      "width": 1920,
+      "height": 1080,
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "60/1",
+      "bit_rate": "10372317"
+    },
+    "audio": [
+      {
+        "codec_name": "aac",
+        "codec_type": "audio",
+        "sample_rate": "48000",
+        "channels": 2,
+        "r_frame_rate": "0/0",
+        "bit_rate": "312818"
+      }
+    ],
+    "first_frame_mean": 0.0,
+    "last_frame_mean": 0.0,
+    "motion_spikes": [],
+    "palette": {
+      "violet_250_310": 0.9991,
+      "blue_200_250": 0.0008,
+      "magenta_310_340": 0.0,
+      "orange_red_0_60_or_340_360": 0.0,
+      "samples": 881304
+    },
+    "logo_correlation_t14": 0.9922,
+    "audio_check": {
+      "present": true,
+      "peak_dbfs": -0.56,
+      "rms_dbfs": -12.14,
       "onsets": [
         {
           "t": 2.25,
