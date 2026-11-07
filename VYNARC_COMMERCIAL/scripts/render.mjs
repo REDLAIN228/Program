@@ -23,13 +23,18 @@ const preset = args.preset || 'slow';
 
 // ---- static server + frame sink on one port
 let sink = null;
+const written = new Set();   // frame indices already sent to the encoder
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.frag': 'text/plain', '.vert': 'text/plain' };
 const srv = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   if (req.method === 'POST' && u.pathname === '/frame') {
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
-    req.on('end', async () => { await sink(Buffer.concat(chunks)); res.writeHead(204); res.end(); });
+    const fi = u.searchParams.get('i');
+    req.on('end', async () => {
+      if (fi === null || !written.has(fi)) { await sink(Buffer.concat(chunks)); if (fi !== null) written.add(fi); }
+      res.writeHead(204); res.end();
+    });
     return;
   }
   const f = path.join(ROOT, path.normalize(decodeURIComponent(u.pathname)));
@@ -40,22 +45,40 @@ const srv = http.createServer((req, res) => {
 await new Promise((r) => srv.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${srv.address().port}`;
 
-const browser = await chromium.launch({ args: GL_ARGS });
-const page = await browser.newPage({ viewport: { width: Math.min(W, 1920), height: Math.min(H, 1920) } });
-page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log('[page]', m.text()); });
-page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-await page.goto(`${base}/scenes/index.html`);
-await page.waitForFunction(() => window.VY_READY === true, null, { timeout: 60000 });
-const info = await page.evaluate((o) => window.VY.init(o), {
-  width: W, height: H, format, fps: FPS, msaa: +(args.msaa ?? 4), mbScale: +(args.mb ?? 1),
-});
-console.log('init', JSON.stringify(info), 'format', format);
+let browser, page;
+async function openPage() {
+  if (browser) await browser.close().catch(() => {});
+  browser = await chromium.launch({ args: GL_ARGS });
+  page = await browser.newPage({ viewport: { width: Math.min(W, 1920), height: Math.min(H, 1920) } });
+  page.setDefaultTimeout(600000);
+  page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !m.text().includes('GL Driver')) console.log('[page]', m.text()); });
+  page.on('pageerror', (e) => console.log('[pageerror]', e.message));
+  await page.goto(`${base}/scenes/index.html`);
+  await page.waitForFunction(() => window.VY_READY === true, null, { timeout: 120000 });
+  const info = await page.evaluate((o) => window.VY.init(o), {
+    width: W, height: H, format, fps: FPS, msaa: +(args.msaa ?? 4), mbScale: +(args.mb ?? 1),
+  });
+  console.log('init', JSON.stringify(info), 'format', format);
+}
+await openPage();
 
-async function renderAndPost(i) {
+// a frame is only sent to the encoder after it rendered completely; on any
+// browser/GPU-process failure the page is rebuilt and the same frame retried
+async function renderAndPost(i, attempt = 0) {
+  try {
+    return await renderOnce(i);
+  } catch (e) {
+    console.log(`[retry] frame ${i} attempt ${attempt + 1}: ${String(e.message || e).split('\n')[0]}`);
+    if (attempt >= 3) throw e;
+    await openPage();
+    return renderAndPost(i, attempt + 1);
+  }
+}
+async function renderOnce(i) {
   return page.evaluate(async (i) => {
     const K = window.VY.frame(i);
     const t1 = performance.now();
-    await fetch('/frame', { method: 'POST', body: window.VY.read() });
+    await fetch('/frame?i=' + i, { method: 'POST', body: window.VY.read() });
     window.VY.lastIo = performance.now() - t1;
     return K;
   }, i);
