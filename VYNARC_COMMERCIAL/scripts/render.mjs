@@ -117,6 +117,9 @@ if (args.stills) {
   const t0 = Date.now();
   let n = 0;
   for (let i = start; i < end; i += step) {
+    // headless Chromium leaks ~tens of MB per 4K readback; recycle the page
+    // well before the renderer runs out of memory (frames are independent)
+    if (n > 0 && n % 45 === 0 && W * H > 2e6) await openPage();
     const K = await renderAndPost(i);
     n++;
     if (n % 10 === 0 || i + step >= end) {
