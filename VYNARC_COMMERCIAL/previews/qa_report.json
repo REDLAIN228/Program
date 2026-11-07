@@ -1,0 +1,109 @@
+[
+  {
+    "file": "previews/VYNARC_preview_540p.mp4",
+    "size_mb": 3.9,
+    "duration": 15.0,
+    "video": {
+      "codec_name": "h264",
+      "codec_type": "video",
+      "width": 960,
+      "height": 540,
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "30/1",
+      "bit_rate": "1877849"
+    },
+    "audio": [
+      {
+        "codec_name": "aac",
+        "codec_type": "audio",
+        "sample_rate": "48000",
+        "channels": 2,
+        "r_frame_rate": "0/0",
+        "bit_rate": "191437"
+      }
+    ],
+    "first_frame_mean": 0.0,
+    "last_frame_mean": 0.0,
+    "motion_spikes": [],
+    "palette": {
+      "violet_250_310": 0.8023,
+      "blue_200_250": 0.1976,
+      "magenta_310_340": 0.0,
+      "orange_red_0_60_or_340_360": 0.0,
+      "samples": 1211402
+    },
+    "logo_correlation_t14": 0.1197,
+    "audio_check": {
+      "present": true,
+      "peak_dbfs": -0.02,
+      "rms_dbfs": -11.67,
+      "onsets": [
+        {
+          "t": 2.25,
+          "type": "metal",
+          "onset_offset_ms": -10
+        },
+        {
+          "t": 4.02,
+          "type": "impact",
+          "onset_offset_ms": 30
+        },
+        {
+          "t": 4.35,
+          "type": "ui_blip",
+          "onset_offset_ms": 10
+        },
+        {
+          "t": 4.5,
+          "type": "ui_blip",
+          "onset_offset_ms": 20
+        },
+        {
+          "t": 4.65,
+          "type": "ui_blip",
+          "onset_offset_ms": 50
+        },
+        {
+          "t": 4.8,
+          "type": "ui_blip",
+          "onset_offset_ms": -20
+        },
+        {
+          "t": 4.95,
+          "type": "ui_blip",
+          "onset_offset_ms": -10
+        },
+        {
+          "t": 7.02,
+          "type": "impact",
+          "onset_offset_ms": 10
+        },
+        {
+          "t": 8.75,
+          "type": "ui_pop",
+          "onset_offset_ms": -30
+        },
+        {
+          "t": 8.95,
+          "type": "ui_pop",
+          "onset_offset_ms": 40
+        },
+        {
+          "t": 9.15,
+          "type": "ui_pop",
+          "onset_offset_ms": -30
+        },
+        {
+          "t": 9.4,
+          "type": "ui_pop",
+          "onset_offset_ms": 0
+        },
+        {
+          "t": 12.85,
+          "type": "logo_hit",
+          "onset_offset_ms": -10
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "name": "vynarc-commercial",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "VYNARC 15s cinematic commercial: Three.js scenes rendered offline in headless Chromium, composited and encoded with FFmpeg",
+  "dependencies": {
+    "three": "0.170.0",
+    "lucide-static": "0.460.0"
+  }
+}

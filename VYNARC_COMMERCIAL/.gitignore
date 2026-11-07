@@ -1,0 +1,5 @@
+node_modules/
+renders/chunks/
+previews/test*/
+*.ok
+renders/render_log.txt

@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>VYNARC UI — commercial texture source</title>
+<!--
+  Recreation of the VYNARC main screen from assets/vynarc_ui_screenshot.png
+  (1672x941 layout, same texts, same structure). The VYNARC source code was not
+  provided, so the screenshot is the single source of truth. Third-party
+  product logos shown in the screenshot (Blender, After Effects, Roblox) are
+  replaced by neutral line icons; project names stay as the user's data.
+  Every element with data-shot is captured by scripts/build_ui.mjs.
+-->
+<style>
+  :root {
+    --bg: #05030B; --bg2: #10091D; --violet: #8B3DFF; --neon: #B45CFF; --deep: #491A85;
+    --silver: #C9C7D8; --text: #F5F3FA; --text2: #92909F;
+    --panel: rgba(22, 14, 40, 0.62); --panel-solid: #120b20; --line: rgba(196, 170, 255, 0.10); --line2: rgba(196, 170, 255, 0.16);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: transparent; }
+  body { font-family: 'Inter', sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+  svg.ic { width: 20px; height: 20px; stroke-width: 1.7; flex: none; }
+  .stage { position: relative; }
+
+  /* ---------------- dashboard ---------------- */
+  #dashboard { position: relative; width: 1672px; height: 941px; overflow: hidden;
+    background: radial-gradient(900px 500px at 75% 15%, rgba(73, 26, 133, 0.22), transparent 60%),
+                radial-gradient(700px 600px at 10% 85%, rgba(139, 61, 255, 0.10), transparent 60%), #07040e; }
+  .layer { position: absolute; }
+  #sidebar { left: 0; top: 0; width: 268px; height: 941px; background: linear-gradient(180deg, #0c0817, #090612); border-right: 1px solid var(--line); }
+  #sidebar .brand { position: absolute; left: 30px; top: 22px; height: 41px; }
+  #sidebar .brand img { height: 41px; }
+  .nav { position: absolute; left: 22px; top: 91px; width: 225px; }
+  .nav .it { height: 45px; display: flex; align-items: center; gap: 14px; padding-left: 14px; font-size: 15px; color: #d9d6e4; border-radius: 10px; margin-bottom: 2.4px; }
+  .nav .it svg { width: 21px; height: 21px; color: #a9a5b8; }
+  .nav .it.active { background: linear-gradient(90deg, rgba(139, 61, 255, 0.40), rgba(110, 50, 210, 0.26)); border: 1px solid rgba(180, 92, 255, 0.35); color: #fff; font-weight: 500; box-shadow: 0 0 24px rgba(139, 61, 255, 0.18) inset; }
+  .nav .it.active svg { color: #fff; }
+  .nav .sep { height: 1px; background: var(--line2); margin: 14px 0 15px; }
+  .streak { position: absolute; left: 0; top: 600px; width: 268px; height: 140px; background: radial-gradient(160px 30px at 70% 60%, rgba(180, 92, 255, 0.45), transparent 70%); transform: rotate(-24deg); filter: blur(6px); opacity: 0.8; }
+  .storage { position: absolute; left: 22px; top: 783px; width: 225px; height: 88px; border-radius: 14px; background: rgba(28, 20, 46, 0.7); border: 1px solid var(--line); padding: 14px 16px; }
+  .storage .t { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+  .storage .v { font-size: 13px; color: var(--text2); text-align: right; margin-top: 8px; }
+  .storage .bar { height: 7px; border-radius: 4px; background: rgba(255,255,255,0.08); margin-top: 9px; }
+  .storage .bar i { display: block; width: 33%; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #8B3DFF, #c27bff); box-shadow: 0 0 10px rgba(180,92,255,.6); }
+  .settings { position: absolute; left: 36px; top: 890px; display: flex; gap: 14px; align-items: center; font-size: 15px; color: #d9d6e4; }
+
+  #topbar { left: 520px; top: 12px; width: 1152px; height: 54px; }
+  .search { position: absolute; left: 12px; top: 5px; width: 623px; height: 43px; border-radius: 12px; background: rgba(20, 14, 34, 0.85); border: 1px solid var(--line2); display: flex; align-items: center; padding: 0 12px 0 14px; gap: 12px; font-size: 14.5px; color: var(--text2); }
+  .search .k { margin-left: auto; font-size: 13px; color: #cfcbe0; background: rgba(255,255,255,0.06); border: 1px solid var(--line2); border-radius: 7px; padding: 4px 8px; }
+  .tb-right { position: absolute; right: 12px; top: 6px; display: flex; align-items: center; gap: 0; }
+  .avatar { width: 38px; height: 38px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #e6c9ff 0 6%, #a45cff 14%, #3a1670 48%, #120626 75%); box-shadow: 0 0 14px rgba(180,92,255,.5); margin: 0 30px 0 34px; }
+  .winc { display: flex; gap: 25px; color: #cfcbe0; }
+
+  .card { border-radius: 16px; background: var(--panel); border: 1px solid var(--line2); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04); }
+  h3 { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  h3 .chev { width: 16px; height: 16px; color: #a9a5b8; }
+
+  #hero { left: 293px; top: 83px; width: 968px; height: 298px; overflow: hidden; }
+  #hero .date { position: absolute; left: 32px; top: 22px; font-size: 14.5px; color: #c9c5d6; }
+  #hero h1 { position: absolute; left: 30px; top: 46px; font-size: 45px; line-height: 52px; font-weight: 700; letter-spacing: -0.5px; }
+  #hero h1 b { background: linear-gradient(90deg, #a35bff, #c98bff); -webkit-background-clip: text; color: transparent; }
+  #hero .sub { position: absolute; left: 32px; top: 160px; font-size: 18px; line-height: 25px; color: #b5b1c4; }
+  .btns { position: absolute; left: 31px; top: 230px; display: flex; gap: 20px; }
+  .btn { height: 42px; border-radius: 10px; display: flex; align-items: center; gap: 10px; padding: 0 17px; font-size: 15px; font-weight: 500; border: 1px solid var(--line2); background: rgba(255,255,255,0.03); }
+  .btn.primary { background: linear-gradient(180deg, #9d55ff, #7d36ec); border-color: rgba(220,180,255,0.4); box-shadow: 0 6px 22px rgba(139,61,255,0.45); }
+  .hero-art { position: absolute; left: 480px; top: -10px; width: 520px; height: 320px; }
+  .hero-art .horizon { position: absolute; left: -40px; top: 190px; width: 620px; height: 260px; border-radius: 50%; border-top: 2px solid rgba(220, 170, 255, 0.85); box-shadow: 0 -10px 40px rgba(180, 92, 255, 0.55), inset 0 20px 60px rgba(139, 61, 255, 0.35); background: radial-gradient(60% 40% at 50% 0%, rgba(90, 40, 170, 0.5), rgba(10, 5, 20, 0.9) 70%); }
+  .hero-art .halo { position: absolute; left: 70px; top: 10px; width: 380px; height: 260px; background: radial-gradient(closest-side, rgba(139,61,255,0.45), transparent); filter: blur(10px); }
+  .hero-art img { position: absolute; left: 112px; top: 26px; height: 246px; transform: perspective(900px) rotateY(-14deg) rotateZ(-2deg); filter: drop-shadow(0 0 22px rgba(180,92,255,0.55)); }
+  .hero-art .stars i { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #e9dcff; opacity: .7; }
+
+  #assistant { left: 1283px; top: 83px; width: 375px; height: 286px; }
+  #assistant h3 { position: absolute; left: 20px; top: 20px; font-size: 17px; }
+  #assistant h3 svg { color: #c27bff; width: 22px; height: 22px; }
+  .online { position: absolute; right: 16px; top: 18px; font-size: 13.5px; background: rgba(255,255,255,0.05); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; display: flex; gap: 7px; align-items: center; color: #dcd9e6; }
+  .online i { width: 7px; height: 7px; border-radius: 50%; background: #3ee08a; box-shadow: 0 0 8px #3ee08a; }
+  .bubble { position: absolute; left: 39px; top: 66px; width: 284px; height: 84px; border-radius: 16px; background: linear-gradient(180deg, rgba(90, 44, 160, 0.42), rgba(60, 28, 110, 0.32)); border: 1px solid rgba(180,92,255,0.28); padding: 13px 18px; font-size: 13.8px; line-height: 19px; color: #d8d3e6; }
+  .tools { position: absolute; left: 48px; top: 170px; display: flex; gap: 23px; }
+  .tools span { width: 55px; height: 40px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--line2); display: grid; place-items: center; color: #ddd8ea; }
+  .ask { position: absolute; left: 19px; top: 226px; width: 339px; height: 43px; border-radius: 11px; background: rgba(12, 8, 22, 0.8); border: 1px solid var(--line2); font-size: 14.5px; color: var(--text2); padding: 12px 15px; }
+  .ask .send { position: absolute; right: -1px; top: -1px; width: 43px; height: 43px; border-radius: 11px; background: linear-gradient(180deg, #a35dff, #7c35ea); display: grid; place-items: center; color: #fff; box-shadow: 0 0 16px rgba(139,61,255,.6); }
+
+  #projects { left: 293px; top: 400px; width: 970px; height: 206px; }
+  #projects h3 { position: absolute; left: 17px; top: 14px; }
+  .pcards { position: absolute; left: 15px; top: 47px; display: flex; gap: 17px; }
+  .pc { position: relative; width: 225px; height: 151px; border-radius: 13px; background: linear-gradient(180deg, rgba(34, 24, 58, 0.85), rgba(22, 15, 38, 0.85)); border: 1px solid var(--line2); }
+  .pc .icon { position: absolute; left: 16px; top: 15px; width: 40px; height: 40px; color: #f1eef8; }
+  .pc .icon svg { width: 34px; height: 34px; stroke-width: 1.6; }
+  .pc .dots { position: absolute; right: 14px; top: 10px; color: #cfcbe0; }
+  .pc .t { position: absolute; left: 16px; top: 66px; font-size: 15.5px; font-weight: 600; }
+  .pc .s { position: absolute; left: 16px; top: 89px; font-size: 13px; color: var(--text2); }
+  .pc .n { position: absolute; left: 16px; top: 117px; font-size: 13px; color: #b9b5c7; display: flex; gap: 9px; align-items: center; }
+  .pc .n svg { width: 17px; height: 17px; }
+
+  #activity { left: 1285px; top: 383px; width: 373px; height: 220px; }
+  #activity h3 { position: absolute; left: 18px; top: 17px; }
+  .rows { position: absolute; left: 18px; top: 54px; width: 340px; }
+  .row { height: 39.5px; display: flex; align-items: center; gap: 13px; font-size: 13px; color: #dcd8e7; }
+  .row svg { width: 19px; height: 19px; color: #c8c4d6; }
+  .row .tm { margin-left: auto; font-size: 11.5px; color: var(--text2); }
+
+  #map { left: 293px; top: 623px; width: 403px; height: 290px; }
+  #map h3 { position: absolute; left: 17px; top: 16px; font-weight: 500; }
+  #map .exp { position: absolute; right: 17px; top: 15px; width: 30px; height: 30px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid var(--line); display: grid; place-items: center; }
+  .graph { position: absolute; left: 0; top: 0; width: 403px; height: 290px; }
+  .node { position: absolute; width: 62px; height: 62px; margin: -31px 0 0 -31px; border-radius: 50%; background: radial-gradient(circle, rgba(70, 34, 130, 0.9), rgba(28, 14, 52, 0.95)); border: 1.5px solid rgba(190, 120, 255, 0.55); box-shadow: 0 0 18px rgba(139, 61, 255, 0.45); display: grid; place-items: center; }
+  .node svg { width: 22px; height: 22px; margin-top: -10px; }
+  .node b { position: absolute; top: 37px; left: 50%; transform: translateX(-50%); font-size: 14px; font-weight: 500; white-space: nowrap; text-shadow: 0 0 8px #000; }
+  .node.hub { width: 78px; height: 78px; margin: -39px 0 0 -39px; border: 2px solid rgba(210, 150, 255, 0.85); box-shadow: 0 0 30px rgba(180, 92, 255, 0.85), inset 0 0 20px rgba(180,92,255,.4); }
+  .node.hub img { height: 40px; }
+
+  #recent { left: 713px; top: 623px; width: 300px; height: 290px; }
+  #recent h3 { position: absolute; left: 17px; top: 16px; }
+  .files { position: absolute; left: 16px; top: 55px; width: 272px; }
+  .f { position: relative; height: 57px; display: flex; gap: 13px; align-items: flex-start; padding-top: 2px; }
+  .f .fi { width: 40px; height: 40px; border-radius: 9px; background: rgba(255,255,255,0.05); border: 1px solid var(--line); display: grid; place-items: center; }
+  .f .nm { font-size: 13.5px; line-height: 18px; }
+  .f .pa { font-size: 11.5px; color: var(--text2); }
+  .f .tm { position: absolute; right: 2px; top: 4px; font-size: 11.5px; color: var(--text2); }
+
+  #templates { left: 1030px; top: 623px; width: 235px; height: 290px; }
+  #templates h3 { position: absolute; left: 16px; top: 16px; }
+  .tpl { position: absolute; left: 15px; width: 205px; height: 44px; border-radius: 10px; background: rgba(255,255,255,0.045); border: 1px solid var(--line); display: flex; align-items: center; gap: 12px; padding-left: 12px; font-size: 13.5px; font-weight: 500; }
+
+  #quick { left: 1287px; top: 617px; width: 371px; height: 296px; }
+  #quick h3 { position: absolute; left: 19px; top: 21px; font-size: 17px; }
+  #quick h3 svg { color: #c27bff; }
+  .qa { position: absolute; left: 18px; width: 336px; height: 43px; border-radius: 10px; background: rgba(255,255,255,0.035); border: 1px solid var(--line); display: flex; align-items: center; gap: 15px; padding-left: 13px; font-size: 15px; }
+  .qa .cv { margin-left: auto; margin-right: 12px; width: 18px; height: 18px; color: #cfcbe0; }
+
+  /* ---------------- floating node cards (scene 3) ---------------- */
+  .nc { position: relative; width: 460px; border-radius: 22px; padding: 22px 24px 22px;
+        background: linear-gradient(160deg, rgba(48, 28, 86, 0.70), rgba(18, 11, 32, 0.78) 55%); border: 1.5px solid rgba(196, 150, 255, 0.30);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); margin: 40px; }
+  .nc .hd { display: flex; align-items: center; gap: 14px; }
+  .nc .hd .ib { width: 54px; height: 54px; border-radius: 15px; display: grid; place-items: center; background: radial-gradient(circle at 30% 25%, rgba(180,92,255,0.55), rgba(73,26,133,0.55)); border: 1px solid rgba(210,160,255,0.45); box-shadow: 0 0 20px rgba(139,61,255,0.45); }
+  .nc .hd .ib svg { width: 28px; height: 28px; color: #fff; stroke-width: 1.8; }
+  .nc .hd .tt { font-size: 27px; font-weight: 650; letter-spacing: -0.2px; }
+  .nc .hd .ct { margin-left: auto; font-size: 14px; color: #e3dcf5; background: rgba(139,61,255,0.22); border: 1px solid rgba(180,92,255,0.4); border-radius: 20px; padding: 5px 12px; }
+  .nc .body { margin-top: 18px; }
+  .li { display: flex; align-items: center; gap: 12px; height: 42px; border-top: 1px solid rgba(196,170,255,0.09); font-size: 16px; color: #e4e0ee; }
+  .li svg { width: 19px; height: 19px; color: #c6a6ff; }
+  .li .r { margin-left: auto; font-size: 13.5px; color: var(--text2); }
+  .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .thumbs i { display: block; height: 92px; border-radius: 12px; border: 1px solid rgba(196,170,255,0.18); }
+  .note { font-size: 16px; line-height: 27px; color: #ddd8e9; }
+  .note .h { font-size: 19px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+  .note u { text-decoration: none; color: #c79bff; }
+  .mini { position: relative; height: 150px; }
+  .mini .mn { position: absolute; padding: 7px 13px; border-radius: 20px; font-size: 14px; background: rgba(139,61,255,0.18); border: 1px solid rgba(180,92,255,0.45); box-shadow: 0 0 14px rgba(139,61,255,0.35); white-space: nowrap; }
+  .mini svg.wire { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  #hubnode { width: 360px; height: 360px; position: relative; margin: 40px; }
+  #hubnode .ring { position: absolute; inset: 40px; border-radius: 50%; border: 3px solid rgba(214, 160, 255, 0.95);
+     background: radial-gradient(circle, rgba(76, 32, 140, 0.85), rgba(20, 9, 40, 0.95) 70%);
+     box-shadow: 0 0 40px rgba(180, 92, 255, 0.9), inset 0 0 50px rgba(180, 92, 255, 0.45); }
+  #hubnode img { position: absolute; left: 50%; top: 50%; height: 150px; transform: translate(-50%, -50%); filter: drop-shadow(0 0 16px rgba(180,92,255,0.6)); }
+
+  /* file preview card (scene 4) */
+  #preview { width: 520px; margin: 40px; border-radius: 18px; overflow: hidden; background: rgba(18, 11, 32, 0.92); border: 1.5px solid rgba(196, 150, 255, 0.35); }
+  #preview .img { height: 300px; position: relative; overflow: hidden;
+     background: radial-gradient(120% 90% at 50% 120%, #6e2bd9 0%, #3a137a 30%, #12072a 60%, #05030b 80%); }
+  #preview .img .planet { position: absolute; left: -20%; top: 62%; width: 140%; height: 140%; border-radius: 50%; border-top: 2px solid rgba(230, 190, 255, 0.95); box-shadow: 0 -18px 60px rgba(180, 92, 255, 0.7); background: radial-gradient(50% 30% at 50% 0%, rgba(120, 60, 220, .6), #07030f 70%); }
+  #preview .img .moon { position: absolute; left: 64%; top: 18%; width: 64px; height: 64px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #f2e6ff, #9f6bff 45%, #2a0f55 80%); box-shadow: 0 0 30px rgba(180,92,255,.7); }
+  #preview .img .ring2 { position: absolute; left: 20%; top: 30%; width: 300px; height: 70px; border-radius: 50%; border: 2px solid rgba(200,140,255,0.6); transform: rotate(-12deg); box-shadow: 0 0 20px rgba(180,92,255,.35); }
+  #preview .meta { padding: 16px 20px; display: flex; align-items: center; gap: 12px; font-size: 17px; }
+  #preview .meta .pa { font-size: 13.5px; color: var(--text2); margin-left: auto; }
+  .row-shots { display: flex; flex-wrap: wrap; align-items: flex-start; }
+</style>
+</head>
+<body>
+<div class="stage">
+<div id="dashboard" data-shot="dashboard">
+  <div class="layer" id="sidebar" data-part="sidebar">
+    <div class="streak"></div>
+    <div class="brand"><img src="../vynarc_logo_trim.png" alt="VYNARC"></div>
+    <div class="nav">
+      <div class="it active"><i data-ic="house"></i>Главная</div>
+      <div class="it"><i data-ic="folder"></i>Проекты</div>
+      <div class="it"><i data-ic="layout-grid"></i>Рабочие пространства</div>
+      <div class="it"><i data-ic="file"></i>Файлы</div>
+      <div class="it"><i data-ic="square-pen"></i>Заметки</div>
+      <div class="it"><i data-ic="book-image"></i>Референсы</div>
+      <div class="it"><i data-ic="share-2"></i>Связи</div>
+      <div class="it"><i data-ic="network"></i>ИИ-подключения</div>
+      <div class="sep"></div>
+      <div class="it"><i data-ic="layout-template"></i>Шаблоны</div>
+    </div>
+    <div class="storage">
+      <div class="t"><i data-ic="cloud"></i>Хранилище</div>
+      <div class="v">24.7 ГБ из 100 ГБ</div>
+      <div class="bar"><i></i></div>
+    </div>
+    <div class="settings"><i data-ic="settings"></i>Настройки</div>
+  </div>
+
+  <div class="layer" id="topbar" data-part="topbar">
+    <div class="search"><i data-ic="search"></i>Поиск по проектам, файлам, заметкам...<span class="k">Ctrl + K</span></div>
+    <div class="tb-right"><i data-ic="bell"></i><div class="avatar"></div><div class="winc"><i data-ic="minus"></i><i data-ic="square"></i><i data-ic="x"></i></div></div>
+  </div>
+
+  <div class="layer card" id="hero" data-part="hero">
+    <div class="hero-art">
+      <div class="halo"></div>
+      <div class="stars"><i style="left:60px;top:40px"></i><i style="left:430px;top:30px"></i><i style="left:470px;top:120px;opacity:.4"></i><i style="left:20px;top:150px;opacity:.4"></i><i style="left:300px;top:8px;opacity:.5"></i></div>
+      <div class="horizon"></div>
+      <img src="../vynarc_symbol_trim.png" alt="">
+    </div>
+    <div class="date">Пятница, 7 ноября</div>
+    <h1>Добро пожаловать<br>в <b>VYNARC</b></h1>
+    <div class="sub">Универсальное рабочее пространство<br>для твоих проектов, идей и знаний.</div>
+    <div class="btns">
+      <div class="btn primary"><i data-ic="plus"></i>Новый проект</div>
+      <div class="btn"><i data-ic="layout-grid"></i>Шаблоны</div>
+      <div class="btn"><i data-ic="folder-open"></i>Открыть...</div>
+    </div>
+  </div>
+
+  <div class="layer card" id="assistant" data-part="assistant">
+    <h3><i data-ic="sparkles"></i>ИИ-помощник</h3>
+    <div class="online"><i></i>Онлайн</div>
+    <div class="bubble">Чем могу помочь?<br>Анализ, идеи, код, структура<br>проекта — просто напиши.</div>
+    <div class="tools"><span><i data-ic="code-xml"></i></span><span><i data-ic="pencil"></i></span><span><i data-ic="image"></i></span><span><i data-ic="lightbulb"></i></span></div>
+    <div class="ask">Спросить у ИИ...<span class="send"><i data-ic="send"></i></span></div>
+  </div>
+
+  <div class="layer card" id="projects" data-part="projects">
+    <h3>Мои проекты <i data-ic="chevron-right" class="chev"></i></h3>
+    <div class="pcards">
+      <div class="pc" data-part="pc1"><div class="icon"><i data-ic="box"></i></div><div class="dots"><i data-ic="ellipsis"></i></div><div class="t">3D / Blender</div><div class="s">Моделинг, ассеты, сцены</div><div class="n"><i data-ic="folder"></i>42 объекта</div></div>
+      <div class="pc" data-part="pc2"><div class="icon"><i data-ic="clapperboard"></i></div><div class="dots"><i data-ic="ellipsis"></i></div><div class="t">Эдиты / AE</div><div class="s">Монтаж, эффекты, VFX</div><div class="n"><i data-ic="folder"></i>28 объектов</div></div>
+      <div class="pc" data-part="pc3"><div class="icon"><i data-ic="gamepad-2"></i></div><div class="dots"><i data-ic="ellipsis"></i></div><div class="t">Roblox</div><div class="s">Разработка игры</div><div class="n"><i data-ic="folder"></i>157 объектов</div></div>
+      <div class="pc" data-part="pc4"><div class="icon"><i data-ic="code-xml"></i></div><div class="dots"><i data-ic="ellipsis"></i></div><div class="t">VYNARC</div><div class="s">Разработка программы</div><div class="n"><i data-ic="folder"></i>412 объектов</div></div>
+    </div>
+  </div>
+
+  <div class="layer card" id="activity" data-part="activity">
+    <h3><i data-ic="clock"></i>Недавняя активность</h3>
+    <div class="rows">
+      <div class="row"><i data-ic="image"></i>Изменён проект «VYNARC»<span class="tm">5 мин назад</span></div>
+      <div class="row"><i data-ic="file-video"></i>Добавлен файл «intro_v2.aep»<span class="tm">12 мин назад</span></div>
+      <div class="row"><i data-ic="square-pen"></i>Обновлена заметка «Идеи»<span class="tm">37 мин назад</span></div>
+      <div class="row"><i data-ic="share-2"></i>Создана связь «AE ↔ Референсы»<span class="tm">1 ч назад</span></div>
+    </div>
+  </div>
+
+  <div class="layer card" id="map" data-part="map">
+    <h3>Карта связей</h3>
+    <div class="exp"><i data-ic="maximize-2"></i></div>
+    <svg class="graph" viewBox="0 0 403 290">
+      <defs><filter id="gl"><feGaussianBlur stdDeviation="2.2"/></filter></defs>
+      <g stroke="#b45cff" stroke-width="2.2" opacity="0.9">
+        <line x1="201" y1="169" x2="201" y2="67"/><line x1="201" y1="169" x2="327" y2="122"/><line x1="201" y1="169" x2="294" y2="235"/>
+        <line x1="201" y1="169" x2="110" y2="235"/><line x1="201" y1="169" x2="75" y2="135"/>
+      </g>
+      <g stroke="#d9a6ff" stroke-width="5" opacity="0.35" filter="url(#gl)">
+        <line x1="201" y1="169" x2="201" y2="67"/><line x1="201" y1="169" x2="327" y2="122"/><line x1="201" y1="169" x2="294" y2="235"/>
+        <line x1="201" y1="169" x2="110" y2="235"/><line x1="201" y1="169" x2="75" y2="135"/>
+      </g>
+    </svg>
+    <div class="node" style="left:201px;top:67px"><i data-ic="file-pen"></i><b>Идеи</b></div>
+    <div class="node" style="left:327px;top:122px"><i data-ic="image"></i><b>Референсы</b></div>
+    <div class="node" style="left:294px;top:235px"><i data-ic="square-pen"></i><b>Заметки</b></div>
+    <div class="node" style="left:110px;top:235px"><i data-ic="layers"></i><b>Файлы</b></div>
+    <div class="node" style="left:75px;top:135px"><i data-ic="folder"></i><b>Проекты</b></div>
+    <div class="node hub" style="left:201px;top:169px"><img src="../vynarc_symbol_trim.png" alt=""></div>
+  </div>
+
+  <div class="layer card" id="recent" data-part="recent">
+    <h3>Недавно открытые <i data-ic="chevron-right" class="chev"></i></h3>
+    <div class="files">
+      <div class="f"><div class="fi"><i data-ic="file-video"></i></div><div><div class="nm">timeline_main.aep</div><div class="pa">/Эдиты / AE</div></div><span class="tm">2 ч назад</span></div>
+      <div class="f"><div class="fi"><i data-ic="box"></i></div><div><div class="nm">model_v3.blend</div><div class="pa">/3D / Blender</div></div><span class="tm">3 ч назад</span></div>
+      <div class="f"><div class="fi"><i data-ic="code-xml"></i></div><div><div class="nm">game_system.lua</div><div class="pa">/Roblox / src</div></div><span class="tm">5 ч назад</span></div>
+      <div class="f"><div class="fi"><i data-ic="image"></i></div><div><div class="nm">concept_art.png</div><div class="pa">/Референсы</div></div><span class="tm">6 ч назад</span></div>
+    </div>
+  </div>
+
+  <div class="layer card" id="templates" data-part="templates">
+    <h3>Шаблоны <i data-ic="chevron-right" class="chev"></i></h3>
+    <div class="tpl" style="top:50px"><i data-ic="clapperboard"></i>Видеомонтаж</div>
+    <div class="tpl" style="top:107px"><i data-ic="box"></i>3D-проект</div>
+    <div class="tpl" style="top:164px"><i data-ic="gamepad-2"></i>Разработка игры</div>
+    <div class="tpl" style="top:221px"><i data-ic="code-xml"></i>Программный проект</div>
+  </div>
+
+  <div class="layer card" id="quick" data-part="quick">
+    <h3><i data-ic="zap"></i>Быстрые действия</h3>
+    <div class="qa" style="top:60px"><i data-ic="file-input"></i>Импортировать файлы<i data-ic="chevron-right" class="cv"></i></div>
+    <div class="qa" style="top:111px"><i data-ic="square-pen"></i>Создать заметку<i data-ic="chevron-right" class="cv"></i></div>
+    <div class="qa" style="top:162px"><i data-ic="share-2"></i>Открыть карту связей<i data-ic="chevron-right" class="cv"></i></div>
+    <div class="qa" style="top:213px"><i data-ic="focus"></i>Включить фокус-режим<i data-ic="chevron-right" class="cv"></i></div>
+  </div>
+</div>
+
+<div class="row-shots">
+  <div class="nc" data-shot="nc_projects">
+    <div class="hd"><div class="ib"><i data-ic="folder"></i></div><div class="tt">Проекты</div><div class="ct">4 активных</div></div>
+    <div class="body">
+      <div class="li"><i data-ic="box"></i>3D / Blender<span class="r">42 объекта</span></div>
+      <div class="li"><i data-ic="clapperboard"></i>Эдиты / AE<span class="r">28 объектов</span></div>
+      <div class="li"><i data-ic="gamepad-2"></i>Roblox<span class="r">157 объектов</span></div>
+      <div class="li"><i data-ic="code-xml"></i>VYNARC<span class="r">412 объектов</span></div>
+    </div>
+  </div>
+  <div class="nc" data-shot="nc_files">
+    <div class="hd"><div class="ib"><i data-ic="layers"></i></div><div class="tt">Файлы</div><div class="ct">24.7 ГБ</div></div>
+    <div class="body">
+      <div class="li"><i data-ic="file-video"></i>timeline_main.aep<span class="r">2 ч назад</span></div>
+      <div class="li"><i data-ic="box"></i>model_v3.blend<span class="r">3 ч назад</span></div>
+      <div class="li"><i data-ic="code-xml"></i>game_system.lua<span class="r">5 ч назад</span></div>
+      <div class="li"><i data-ic="image"></i>concept_art.png<span class="r">6 ч назад</span></div>
+    </div>
+  </div>
+  <div class="nc" data-shot="nc_notes">
+    <div class="hd"><div class="ib"><i data-ic="square-pen"></i></div><div class="tt">Заметки</div><div class="ct">обновлено</div></div>
+    <div class="body note">
+      <div class="h">Идеи</div>
+      — Интро для <u>timeline_main.aep</u><br>
+      — Свет и материалы для <u>model_v3</u><br>
+      — Связать с <u>Референсами</u>
+    </div>
+  </div>
+  <div class="nc" data-shot="nc_refs">
+    <div class="hd"><div class="ib"><i data-ic="image"></i></div><div class="tt">Референсы</div><div class="ct">6 изображений</div></div>
+    <div class="body thumbs">
+      <i style="background:radial-gradient(120% 90% at 50% 120%,#7a35e8,#2a0d5c 45%,#07030f 80%)"></i>
+      <i style="background:linear-gradient(135deg,#1b0d33,#5b23b0 50%,#d9b3ff 52%,#3a1470 56%,#0b0518)"></i>
+      <i style="background:radial-gradient(circle at 35% 40%,#f0e2ff 0 6%,#a76bff 14%,#2b0f57 45%,#07030f 75%)"></i>
+      <i style="background:conic-gradient(from 200deg at 60% 60%,#05030b,#491a85,#b45cff,#491a85,#05030b)"></i>
+      <i style="background:linear-gradient(160deg,#0b0518 30%,#8b3dff 31%,#c9c7d8 33%,#491a85 36%,#0b0518 60%)"></i>
+      <i style="background:radial-gradient(80% 60% at 30% 20%,#c9c7d8,#6e44b8 30%,#1a0b33 65%,#05030b)"></i>
+    </div>
+  </div>
+  <div class="nc" data-shot="nc_links">
+    <div class="hd"><div class="ib"><i data-ic="share-2"></i></div><div class="tt">Связи</div><div class="ct">5 связей</div></div>
+    <div class="body mini">
+      <svg class="wire" viewBox="0 0 412 150"><g stroke="#b45cff" stroke-width="2" fill="none" opacity=".9">
+        <path d="M70 30 C 160 30, 170 75, 206 75"/><path d="M342 30 C 252 30, 242 75, 206 75"/><path d="M70 122 C 160 122, 170 75, 206 75"/><path d="M342 122 C 252 122, 242 75, 206 75"/></g></svg>
+      <div class="mn" style="left:8px;top:14px">AE</div>
+      <div class="mn" style="left:300px;top:14px">Референсы</div>
+      <div class="mn" style="left:8px;top:106px">Идеи</div>
+      <div class="mn" style="left:316px;top:106px">Файлы</div>
+      <div class="mn" style="left:178px;top:58px;background:rgba(139,61,255,.45)">VYNARC</div>
+    </div>
+  </div>
+  <div id="hubnode" data-shot="hub"><div class="ring"></div><img src="../vynarc_symbol_trim.png" alt=""></div>
+  <div id="preview" data-shot="preview">
+    <div class="img"><div class="planet"></div><div class="ring2"></div><div class="moon"></div></div>
+    <div class="meta"><i data-ic="image"></i>concept_art.png<span class="pa">/Референсы · 6 ч назад</span></div>
+  </div>
+</div>
+</div>
+<script>
+  // inline lucide icons
+  window.iconsReady = (async () => {
+    const els = [...document.querySelectorAll('i[data-ic]')];
+    const cache = {};
+    await Promise.all([...new Set(els.map(e => e.dataset.ic))].map(async n => {
+      cache[n] = await (await fetch(`../../node_modules/lucide-static/icons/${n}.svg`)).text();
+    }));
+    for (const e of els) {
+      const wrap = document.createElement('span');
+      wrap.innerHTML = cache[e.dataset.ic];
+      const svg = wrap.firstElementChild;
+      svg.classList.add('ic');
+      for (const c of e.classList) svg.classList.add(c);
+      svg.removeAttribute('width'); svg.removeAttribute('height');
+      e.replaceWith(svg);
+    }
+    await document.fonts.ready;
+    await Promise.all([...document.images].map(i => i.complete ? 0 : new Promise(r => { i.onload = i.onerror = r; })));
+    return true;
+  })();
+</script>
+</body>
+</html>
