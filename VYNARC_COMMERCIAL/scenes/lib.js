@@ -180,13 +180,13 @@ float ln3(vec3 x){ vec3 i=floor(x), f=fract(x); f=f*f*(3.0-2.0*f);
  return mix(mix(mix(lh(i),lh(i+vec3(1,0,0)),f.x),mix(lh(i+vec3(0,1,0)),lh(i+vec3(1,1,0)),f.x),f.y),
             mix(mix(lh(i+vec3(0,0,1)),lh(i+vec3(1,0,1)),f.x),mix(lh(i+vec3(0,1,1)),lh(i+vec3(1,1,1)),f.x),f.y),f.z); }`)
       .replace('void main() {', `void main() {
-  float mField = (vLogoPos.x * 0.42 - vLogoPos.y * 0.30) * 0.5 + 0.5 + (ln3(vLogoPos * 6.0) - 0.5) * 0.22;
+  float mField = (vLogoPos.x * 0.42 - vLogoPos.y * 0.30) * 0.5 + 0.5 + (ln3(vLogoPos * 2.6) - 0.5) * 0.09;
   if (mField > uMat) discard;`)
       .replace('#include <opaque_fragment>', `#include <opaque_fragment>
   float sw = (vLogoPos.x * 0.8 + vLogoPos.y * 0.6 - uSweep) / 0.16;
   gl_FragColor.rgb += vec3(0.95, 0.9, 1.0) * exp(-sw * sw) * uSweepAmt;
-  float edge = exp(-pow((uMat - mField) / 0.03, 2.0)) * step(uMat, 1.05);
-  gl_FragColor.rgb += uEdge * edge * 6.0 + uEdge * uGlowAdd;`);
+  float edge = exp(-pow((uMat - mField) / 0.018, 2.0)) * step(uMat, 1.05);
+  gl_FragColor.rgb += uEdge * edge * 2.6 + uEdge * uGlowAdd;`);
   };
 }
 
