@@ -72,7 +72,7 @@ export function create(ctx) {
   return {
     cards, hubPanel, group,
     update(t) {
-      const vis = t > 3.6 && t < 7.25;
+      const vis = t > 3.6 && t < 7.32;
       group.visible = vis;
       cap.group.visible = t > 5.3 && t < 6.7;
       if (vis) {
@@ -80,7 +80,7 @@ export function create(ctx) {
         // hub: born from the fly-through light
         const hb = seg(t, 3.62, 4.25, ease.out);
         // at 7.0 the hub "opens": it expands past the camera and dissolves into light
-        const open = seg(t, 6.98, 7.3, ease.in);
+        const open = seg(t, 6.98, 7.28, ease.in);
         hubPanel.group.scale.setScalar(lerp(0.4, 1.0, hb) * (1 + 0.03 * Math.sin(t * 2.2)) * (1 + 2.2 * open));
         hubPanel.opacity = hb * (1 - open) * (1 - open);
         hubPanel.mat.uniforms.uBright.value = 1.0 + 0.9 * Math.exp(-Math.pow((t - 3.95) / 0.2, 2)) + 0.2 * seg(t, 6.6, 7.0, ease.in);

@@ -3,3 +3,4 @@ renders/chunks/
 previews/test*/
 *.ok
 renders/render_log.txt
+renders/patch_log.txt

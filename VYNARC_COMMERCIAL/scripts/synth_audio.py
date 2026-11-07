@@ -329,7 +329,7 @@ def build():
     # master: gentle glue + soft clip, loudness ~ -14 LUFS-ish (RMS proxy), peak < -1 dBFS
     mix *= 10 ** (-16 / 20) / max(1e-6, np.sqrt((mix ** 2).mean()))
     mix = np.tanh(mix * 1.15) / 1.15
-    mix *= 10 ** (-1.0 / 20) / max(1e-6, np.abs(mix).max())
+    mix *= 10 ** (-1.5 / 20) / max(1e-6, np.abs(mix).max())  # headroom for AAC inter-sample peaks
     fade_in = smooth01(t / 0.05)
     fade_out = 1 - smooth01((t - (DUR - 0.25)) / 0.25)
     mix *= fade_in * fade_out
